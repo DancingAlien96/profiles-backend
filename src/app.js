@@ -6,7 +6,7 @@ import profileRoutes from './routes/profiles.js';
 /** Construye la aplicacion. Separada del arranque para poder probarla. */
 export function createApp() {
   const app = express();
-  app.set('trust proxy', 1); // Render corre detras de un proxy
+  app.set('trust proxy', 1); // Nginx va delante: sin esto el rate limit veria una sola IP
 
   const origins = (process.env.CORS_ORIGINS || '')
     .split(',')
@@ -27,8 +27,7 @@ export function createApp() {
   // El limite cubre la foto en base64 (200 KB crecen ~33% al codificar).
   app.use(express.json({ limit: '400kb' }));
 
-  // Render duerme el servicio gratuito: esta ruta sirve para despertarlo
-  // y para el health check de la plataforma.
+  // Health check: lo usan el build del frontend y el monitoreo del VPS.
   app.get('/api/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
   app.use('/api/auth', authRoutes);
