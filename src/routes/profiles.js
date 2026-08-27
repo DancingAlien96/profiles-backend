@@ -13,16 +13,6 @@ const router = Router();
 // es la red de seguridad por si alguien llama la API por fuera del panel.
 const MAX_FOTO_BYTES = 200 * 1024;
 
-/**
- * Slugs que no puede tomar un cliente porque chocarian con una pagina del
- * sitio o con una ruta de la API. Sin esto, alguien con el slug "crear"
- * dejaria inaccesible el formulario de alta.
- */
-const RESERVADOS = new Set([
-  'crear', 'admin', 'index', 'api', 'fotos', 'og', '404', 'registro',
-  'disponible', 'todos', 'login', 'null', 'undefined', 'www', 'static', 'assets',
-]);
-
 /* ------------------------------------------------------- alta de clientes */
 
 // Van antes de "/:slug" a proposito: en Express gana la primera que coincida,
@@ -44,16 +34,21 @@ router.get('/todos', requireAdmin, (_req, res) => {
 router.get('/disponible/:slug', (req, res) => {
   const slug = String(req.params.slug || '').toLowerCase();
 
-  if (!/^[a-z0-9-]{3,40}$/.test(slug)) {
-    return res.json({ disponible: false, motivo: 'Solo minusculas, numeros y guiones (3 a 40).' });
-  }
-  if (RESERVADOS.has(slug)) {
-    return res.json({ disponible: false, motivo: 'Esa direccion esta reservada.' });
-  }
-  if (Perfil.porSlug(slug)) {
-    return res.json({ disponible: false, motivo: 'Ya esta ocupada.' });
-  }
-  res.json({ disponible: true });
+  const apartado = (s) => Boolean(Invitacion.slugApartado(s));
+
+  const motivo =
+    Perfil.motivoSlugNoDisponible(slug) ||
+    (apartado(slug) ? 'Ya esta apartada para otro cliente.' : null);
+
+  if (!motivo) return res.json({ disponible: true });
+
+  // Dos clientes que se llaman igual generan el mismo slug: se ofrece la
+  // primera variante libre para que el segundo no se quede atascado.
+  res.json({
+    disponible: false,
+    motivo,
+    sugerencia: Perfil.sugerirSlug(slug, apartado),
+  });
 });
 
 /** Alta desde el enlace de invitacion. La invitacion se gasta al usarse. */
@@ -67,13 +62,12 @@ router.post('/registro', registroLimiter, async (req, res, next) => {
     return res.status(400).json({ error: 'La clave debe tener al menos 8 caracteres' });
   }
 
-  const slugLimpio = String(slug || '').toLowerCase();
-  if (RESERVADOS.has(slugLimpio)) {
-    return res.status(409).json({ error: 'Esa direccion esta reservada. Elige otra.' });
-  }
-  if (Perfil.porSlug(slugLimpio)) {
-    return res.status(409).json({ error: 'Esa direccion ya esta ocupada. Elige otra.' });
-  }
+  // Si la invitacion trae direccion fijada, manda esa y se ignora lo que envie
+  // el cliente: la tarjeta NFC y el QR ya estan impresos con ella.
+  const slugLimpio = revision.invitacion.slug || String(slug || '').toLowerCase();
+
+  const motivo = Perfil.motivoSlugNoDisponible(slugLimpio);
+  if (motivo) return res.status(409).json({ error: `${motivo} Elige otra.` });
 
   try {
     const passwordHash = await bcrypt.hash(String(password), 12);

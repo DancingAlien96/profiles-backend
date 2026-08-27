@@ -38,10 +38,14 @@ CREATE INDEX IF NOT EXISTS idx_profiles_published ON profiles(published);
 -- Invitaciones para que el cliente cree su propio perfil.
 -- Un solo uso y con caducidad: si no, quien reenvie el enlace podria dar de
 -- alta perfiles en el dominio sin control.
+-- La columna slug fija de antemano la direccion de la pagina. Se usa cuando la
+-- tarjeta NFC o el QR ya estan impresos: la URL queda decidida antes de que el
+-- cliente llene nada, y el formulario no le deja cambiarla.
 CREATE TABLE IF NOT EXISTS invitations (
   token        TEXT PRIMARY KEY,
   nota         TEXT NOT NULL DEFAULT '',
   plantilla    TEXT,
+  slug         TEXT,
   created_at   TEXT NOT NULL,
   expires_at   TEXT NOT NULL,
   used_at      TEXT,
@@ -73,11 +77,28 @@ export function conectarDB(ruta = process.env.DB_PATH || './data/perfiles.db') {
   db.pragma('busy_timeout = 5000');
 
   db.exec(ESQUEMA);
+  migrar(db);
 
   if (ruta !== ':memory:') {
     console.log(`[db] base abierta en ${path.resolve(ruta)}`);
   }
   return db;
+}
+
+/**
+ * Cambios de esquema sobre bases que ya existen.
+ *
+ * `CREATE TABLE IF NOT EXISTS` no altera una tabla ya creada, asi que las
+ * columnas nuevas hay que añadirlas aparte. Se comprueba antes de tocar nada,
+ * de modo que arrancar es idempotente.
+ */
+function migrar(db) {
+  const columnas = (tabla) => db.pragma(`table_info(${tabla})`).map((c) => c.name);
+
+  if (!columnas('invitations').includes('slug')) {
+    db.exec('ALTER TABLE invitations ADD COLUMN slug TEXT');
+    console.log('[db] migracion: invitations.slug');
+  }
 }
 
 export function obtenerDB() {

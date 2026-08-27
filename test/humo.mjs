@@ -388,6 +388,164 @@ await prueba('una invitacion no se gasta si el alta falla', async () => {
   assert.equal(exito.estado, 201);
 });
 
+/* ------------------------------ direccion fijada (tarjetas NFC y QR) */
+
+await prueba('la direccion fijada aparta el slug para nadie mas', async () => {
+  const { estado, cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'Tarjeta NFC impresa', slug: 'dr-lopez' }),
+  });
+  assert.equal(estado, 201);
+  assert.equal(cuerpo.invitacion.slug, 'dr-lopez');
+
+  // Ya no debe ofrecerse a nadie mas
+  const libre = await pedir('/api/profiles/disponible/dr-lopez');
+  assert.equal(libre.cuerpo.disponible, false);
+});
+
+await prueba('no deja apartar dos veces la misma direccion', async () => {
+  const { estado } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'duplicada', slug: 'dr-lopez' }),
+  });
+  assert.equal(estado, 409);
+});
+
+await prueba('no deja apartar una direccion reservada', async () => {
+  const { estado } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'reservada', slug: 'admin' }),
+  });
+  assert.equal(estado, 409);
+});
+
+await prueba('no deja apartar la direccion de un perfil existente', async () => {
+  const { estado } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'ocupada', slug: 'juanperez' }),
+  });
+  assert.equal(estado, 409);
+});
+
+await prueba('el formulario recibe la direccion fijada', async () => {
+  const { cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'con QR', slug: 'lic-ramirez' }),
+  });
+  const estado = await pedir(`/api/invitations/${cuerpo.invitacion.token}`);
+  assert.equal(estado.cuerpo.slug, 'lic-ramirez');
+});
+
+await prueba('el cliente NO puede cambiar la direccion impresa en su tarjeta', async () => {
+  const { cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'NFC ya entregada', slug: 'ing-castillo' }),
+  });
+
+  // El cliente manda otra direccion a proposito: debe ignorarse.
+  const alta = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: cuerpo.invitacion.token,
+      slug: 'la-que-yo-quiero',
+      name: 'Ing. Castillo',
+      password: 'ClaveLarga2026',
+    }),
+  });
+  assert.equal(alta.estado, 201);
+  assert.equal(alta.cuerpo.profile.slug, 'ing-castillo');
+
+  // Y la que intento usar debe seguir libre
+  const otra = await pedir('/api/profiles/disponible/la-que-yo-quiero');
+  assert.equal(otra.cuerpo.disponible, true);
+});
+
+await prueba('la direccion no cambia al editar el perfil despues', async () => {
+  const sesion = await pedir('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'ing-castillo', password: 'ClaveLarga2026' }),
+  });
+  await pedir('/api/profiles/ing-castillo', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${sesion.cuerpo.token}` },
+    body: JSON.stringify({ slug: 'otro-nombre', name: 'Ing. Castillo Actualizado' }),
+  });
+
+  // La direccion original sigue viva: el QR impreso no se rompe.
+  const original = await pedir('/api/profiles/ing-castillo');
+  assert.equal(original.estado, 200);
+  assert.equal(original.cuerpo.name, 'Ing. Castillo Actualizado');
+
+  const inventada = await pedir('/api/profiles/otro-nombre');
+  assert.equal(inventada.estado, 404);
+});
+
+await prueba('una direccion apartada se libera si se anula la invitacion', async () => {
+  const { cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'se cancela', slug: 'cliente-arrepentido' }),
+  });
+  await pedir(`/api/invitations/${cuerpo.invitacion.token}`, {
+    method: 'DELETE',
+    headers: { 'x-admin-key': ADMIN_KEY },
+  });
+  const libre = await pedir('/api/profiles/disponible/cliente-arrepentido');
+  assert.equal(libre.cuerpo.disponible, true);
+});
+
+/* -------------------------------------------- clientes que se llaman igual */
+
+await prueba('dos clientes con el mismo nombre no colisionan', async () => {
+  // clara-molina ya existe de una prueba anterior
+  const { cuerpo } = await pedir('/api/profiles/disponible/clara-molina');
+  assert.equal(cuerpo.disponible, false);
+  assert.equal(cuerpo.sugerencia, 'clara-molina-2');
+});
+
+await prueba('la sugerencia sigue subiendo si la variante tambien esta tomada', async () => {
+  const inv = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'tocayo' }),
+  });
+  const alta = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: inv.cuerpo.invitacion.token,
+      slug: 'clara-molina-2',
+      name: 'Clara Molina (otra)',
+      password: 'ClaveLarga2026',
+    }),
+  });
+  assert.equal(alta.estado, 201);
+
+  const { cuerpo } = await pedir('/api/profiles/disponible/clara-molina');
+  assert.equal(cuerpo.sugerencia, 'clara-molina-3');
+});
+
+await prueba('la sugerencia esquiva las direcciones apartadas', async () => {
+  await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'aparta la 3', slug: 'clara-molina-3' }),
+  });
+  const { cuerpo } = await pedir('/api/profiles/disponible/clara-molina');
+  assert.equal(cuerpo.sugerencia, 'clara-molina-4');
+});
+
+await prueba('no sugiere una direccion reservada', async () => {
+  const { cuerpo } = await pedir('/api/profiles/disponible/admin');
+  assert.equal(cuerpo.disponible, false);
+  assert.equal(cuerpo.sugerencia, 'admin-2');
+});
+
 /* ----------------------------------------------------------- cierre */
 
 servidor.close();

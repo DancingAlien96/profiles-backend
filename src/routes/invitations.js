@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import * as Invitacion from '../models/Invitation.js';
+import * as Perfil from '../models/Profile.js';
 import { requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
@@ -18,6 +19,9 @@ router.get('/:token', (req, res) => {
   res.json({
     ok: true,
     plantilla: resultado.invitacion.plantilla,
+    // Si viene fijada, el formulario la muestra bloqueada: la tarjeta NFC o el
+    // QR ya estan impresos con esa direccion.
+    slug: resultado.invitacion.slug,
     expiresAt: resultado.invitacion.expires_at,
   });
 });
@@ -26,9 +30,20 @@ router.get('/:token', (req, res) => {
 
 router.post('/', requireAdmin, (req, res) => {
   const { nota, plantilla, dias } = req.body || {};
+  const slug = req.body?.slug ? String(req.body.slug).toLowerCase().trim() : null;
+
+  // Fijar la direccion es lo que permite imprimir el QR y la tarjeta NFC
+  // antes de que el cliente llene el formulario, asi que se valida aqui:
+  // despues ya no se puede cambiar sin invalidar lo impreso.
+  if (slug) {
+    const motivo = Perfil.motivoSlugNoDisponible(slug) || (
+      Invitacion.slugApartado(slug) ? 'Ya hay otra invitacion pendiente con esa direccion.' : null
+    );
+    if (motivo) return res.status(409).json({ error: motivo });
+  }
 
   const diasValidos = Number(dias) > 0 && Number(dias) <= 90 ? Number(dias) : undefined;
-  const invitacion = Invitacion.crear({ nota, plantilla, dias: diasValidos });
+  const invitacion = Invitacion.crear({ nota, plantilla, slug, dias: diasValidos });
 
   res.status(201).json({ invitacion });
 });

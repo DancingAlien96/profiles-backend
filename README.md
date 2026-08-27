@@ -179,6 +179,33 @@ npm run invitar -- --listar
 El enlace **sirve una sola vez** y caduca a los 14 días. Sin eso, quien
 reenviara el enlace podría dar de alta perfiles en tu dominio sin control.
 
+### Tarjetas NFC y códigos QR
+
+Si vas a imprimir el QR o grabar la tarjeta NFC **antes** de que el cliente
+llene el formulario, fija la dirección al generar la invitación:
+
+```bash
+npm run invitar -- --para "Dr. López" --plantilla salud --slug dr-lopez
+```
+
+Esa dirección queda apartada (nadie más puede tomarla) y el formulario se la
+muestra al cliente bloqueada. Aunque manipule el campo, el servidor usa la
+dirección de la invitación e ignora lo que llegue en la petición.
+
+**Una dirección no cambia nunca una vez creado el perfil.** No hay ninguna ruta
+que lo permita: el cliente solo edita contenido. Eso es lo que hace seguro
+quemar la URL en material impreso.
+
+Si anulas una invitación sin usar, la dirección vuelve a quedar libre.
+
+### Clientes que se llaman igual
+
+Dos "Juan Pérez" generan el mismo slug, y el segundo no se crea: la dirección
+es clave primaria y se valida antes. Para que nadie se quede atascado,
+`GET /api/profiles/disponible/:slug` devuelve además una `sugerencia` con la
+primera variante libre (`juan-perez-2`), que esquiva también las direcciones
+reservadas y las apartadas por invitaciones pendientes.
+
 En el formulario el cliente elige su propia clave, así que no hay claves
 adivinables circulando por WhatsApp.
 
@@ -205,7 +232,7 @@ Para ocultar un perfil sin perder los datos, usa el botón del panel o
 
 Un cliente no puede tomar slugs como `crear`, `admin`, `api`, `fotos` u `og`:
 chocarían con páginas del sitio o rutas de la API. La lista está en
-`src/routes/profiles.js`; si algún día agregas una página nueva al frontend,
+`src/models/Profile.js`; si algún día agregas una página nueva al frontend,
 añade su nombre ahí.
 
 ## Fotos

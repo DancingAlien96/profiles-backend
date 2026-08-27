@@ -20,6 +20,59 @@ const LIMITES = {
 
 const ahora = () => new Date().toISOString();
 
+/**
+ * Slugs que nadie puede tomar porque chocarian con una pagina del sitio o con
+ * una ruta de la API. Sin esto, un cliente con el slug "crear" dejaria
+ * inaccesible el formulario de alta.
+ *
+ * Si algun dia agregas una pagina nueva al frontend, añade su nombre aqui.
+ */
+export const RESERVADOS = new Set([
+  'crear', 'admin', 'index', 'api', 'fotos', 'og', '404', 'registro',
+  'disponible', 'todos', 'login', 'null', 'undefined', 'www', 'static', 'assets',
+]);
+
+/**
+ * Devuelve por que un slug no se puede usar, o null si esta libre.
+ * Lo comparten el alta de clientes y la creacion de invitaciones, para que
+ * ambas apliquen exactamente la misma regla.
+ */
+export function motivoSlugNoDisponible(slug) {
+  const s = String(slug || '').toLowerCase();
+  if (!/^[a-z0-9-]{3,40}$/.test(s)) return 'Solo minusculas, numeros y guiones (3 a 40).';
+  if (RESERVADOS.has(s)) return 'Esa direccion esta reservada.';
+  if (porSlug(s)) return 'Ya esta ocupada.';
+  return null;
+}
+
+/**
+ * Primera variante libre de una direccion: dos clientes que se llamen igual
+ * generan el mismo slug, y sin esto el segundo se queda atascado sin saber
+ * que escribir.
+ *
+ * `ocupadoExtra` deja excluir tambien las direcciones apartadas por
+ * invitaciones pendientes.
+ */
+export function sugerirSlug(base, ocupadoExtra = () => false) {
+  const limpio = String(base || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 37);
+
+  if (limpio.length < 3) return null;
+
+  const libre = (s) => !RESERVADOS.has(s) && !porSlug(s) && !ocupadoExtra(s);
+
+  if (libre(limpio)) return limpio;
+
+  for (let n = 2; n <= 99; n++) {
+    const candidato = `${limpio}-${n}`;
+    if (libre(candidato)) return candidato;
+  }
+  return null;
+}
+
 /* ------------------------------------------------------- validacion */
 
 /**
