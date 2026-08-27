@@ -1,3 +1,4 @@
+import rateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
 
 /** Exige un token valido y deja el slug del dueño en req.auth. */
@@ -22,11 +23,25 @@ export function requireOwner(req, res, next) {
   next();
 }
 
-/** Rutas de administracion: solo tu, con la ADMIN_KEY. */
-export function requireAdmin(req, res, next) {
+// El panel de administracion vive en una pagina publica del sitio, asi que
+// cualquiera puede intentar adivinar la clave. Con 32 caracteres aleatorios
+// es inviable, pero el freno es barato y corta el ruido en los logs.
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'Demasiados intentos. Espera 15 minutos.' },
+});
+
+function verificarAdmin(req, res, next) {
   const key = req.get('x-admin-key');
   if (!process.env.ADMIN_KEY || key !== process.env.ADMIN_KEY) {
     return res.status(401).json({ error: 'Clave de administrador incorrecta' });
   }
   next();
 }
+
+/** Rutas de administracion: solo tu, con la ADMIN_KEY. */
+export const requireAdmin = [adminLimiter, verificarAdmin];

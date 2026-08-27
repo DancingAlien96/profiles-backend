@@ -227,6 +227,167 @@ await prueba('la lista publica alimenta el build', async () => {
   assert.ok(cuerpo.every((p) => p.passwordHash === undefined));
 });
 
+/* ------------------------------------------- invitaciones y auto-alta */
+
+let invitacion;
+
+await prueba('crear invitaciones exige la clave de administrador', async () => {
+  const { estado } = await pedir('/api/invitations', {
+    method: 'POST',
+    body: JSON.stringify({ nota: 'intruso' }),
+  });
+  assert.equal(estado, 401);
+});
+
+await prueba('el administrador genera una invitacion', async () => {
+  const { estado, cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'Clara Molina', plantilla: 'abogado' }),
+  });
+  assert.equal(estado, 201);
+  assert.ok(cuerpo.invitacion.token);
+  invitacion = cuerpo.invitacion.token;
+});
+
+await prueba('la invitacion se consulta sin gastarla y no filtra la nota', async () => {
+  const { estado, cuerpo } = await pedir(`/api/invitations/${invitacion}`);
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.plantilla, 'abogado');
+  assert.equal(cuerpo.nota, undefined);
+});
+
+await prueba('una invitacion inventada se rechaza', async () => {
+  const { estado } = await pedir('/api/invitations/noexiste');
+  assert.equal(estado, 410);
+});
+
+await prueba('avisa si la direccion ya esta ocupada', async () => {
+  const { cuerpo } = await pedir('/api/profiles/disponible/juanperez');
+  assert.equal(cuerpo.disponible, false);
+});
+
+await prueba('no deja tomar una direccion reservada', async () => {
+  const { cuerpo } = await pedir('/api/profiles/disponible/admin');
+  assert.equal(cuerpo.disponible, false);
+});
+
+await prueba('acepta una direccion libre', async () => {
+  const { cuerpo } = await pedir('/api/profiles/disponible/clara-molina');
+  assert.equal(cuerpo.disponible, true);
+});
+
+await prueba('no se puede crear un perfil sin invitacion', async () => {
+  const { estado } = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'colado', name: 'Colado', password: 'ClaveLarga1' }),
+  });
+  assert.equal(estado, 410);
+});
+
+await prueba('el cliente crea su perfil con la invitacion', async () => {
+  const { estado, cuerpo } = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: invitacion,
+      slug: 'clara-molina',
+      name: 'Clara Molina',
+      role: 'Abogada y Notaria',
+      theme: 'marfil-oro',
+      password: 'MiClavePropia2026',
+      links: [{ type: 'whatsapp', label: 'WhatsApp', url: 'https://wa.me/50212345678' }],
+    }),
+  });
+  assert.equal(estado, 201);
+  assert.equal(cuerpo.profile.slug, 'clara-molina');
+  assert.equal(cuerpo.profile.mustChangePassword, false);
+});
+
+await prueba('el cliente entra con la clave que eligio', async () => {
+  const { estado } = await pedir('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'clara-molina', password: 'MiClavePropia2026' }),
+  });
+  assert.equal(estado, 200);
+});
+
+await prueba('la invitacion ya no sirve una segunda vez', async () => {
+  const { estado } = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: invitacion,
+      slug: 'otro-mas',
+      name: 'Otro Mas',
+      password: 'ClaveLarga2026',
+    }),
+  });
+  assert.equal(estado, 410);
+});
+
+await prueba('una invitacion caducada se rechaza', async () => {
+  const { cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'vieja', dias: 1 }),
+  });
+  const { obtenerDB } = await import('../src/db.js');
+  obtenerDB()
+    .prepare('UPDATE invitations SET expires_at = ? WHERE token = ?')
+    .run('2020-01-01T00:00:00.000Z', cuerpo.invitacion.token);
+
+  const { estado } = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: cuerpo.invitacion.token,
+      slug: 'tarde-piaste',
+      name: 'Tarde Piaste',
+      password: 'ClaveLarga2026',
+    }),
+  });
+  assert.equal(estado, 410);
+});
+
+await prueba('el registro rechaza una clave corta', async () => {
+  const { cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'prueba clave' }),
+  });
+  const { estado } = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: cuerpo.invitacion.token,
+      slug: 'clave-corta',
+      name: 'Clave Corta',
+      password: 'abc',
+    }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('una invitacion no se gasta si el alta falla', async () => {
+  const { cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'reintento' }),
+  });
+  const token = cuerpo.invitacion.token;
+
+  const fallo = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({ token, slug: 'clara-molina', name: 'X', password: 'ClaveLarga2026' }),
+  });
+  assert.equal(fallo.estado, 409);
+
+  const exito = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token, slug: 'segundo-intento', name: 'Segundo Intento', password: 'ClaveLarga2026',
+    }),
+  });
+  assert.equal(exito.estado, 201);
+});
+
 /* ----------------------------------------------------------- cierre */
 
 servidor.close();

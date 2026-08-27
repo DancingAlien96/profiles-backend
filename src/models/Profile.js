@@ -143,7 +143,15 @@ export function obtenerFoto(slug) {
 
 /* ------------------------------------------------------ escrituras */
 
-export function crear({ slug, name, role, tagline, footer, theme, links, passwordHash }) {
+/**
+ * `mustChangePassword` va en true cuando la clave la generaste tu (deriva del
+ * nombre y el telefono, asi que es adivinable) y en false cuando el cliente
+ * la eligio el mismo al darse de alta.
+ */
+export function crear({
+  slug, name, role, tagline, footer, theme, links, passwordHash,
+  mustChangePassword = true,
+}) {
   const datos = {
     slug: String(slug).toLowerCase(),
     name: String(name).trim(),
@@ -164,9 +172,15 @@ export function crear({ slug, name, role, tagline, footer, theme, links, passwor
         (slug, name, role, tagline, footer, theme, links, password_hash,
          must_change_password, published, created_at, updated_at)
        VALUES (@slug, @name, @role, @tagline, @footer, @theme, @links, @passwordHash,
-         1, 1, @t, @t)`
+         @mustChange, 1, @t, @t)`
     )
-    .run({ ...datos, links: JSON.stringify(limpiarEnlaces(datos.links)), passwordHash, t });
+    .run({
+      ...datos,
+      links: JSON.stringify(limpiarEnlaces(datos.links)),
+      passwordHash,
+      mustChange: mustChangePassword ? 1 : 0,
+      t,
+    });
 
   return porSlug(datos.slug);
 }

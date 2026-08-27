@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import profileRoutes from './routes/profiles.js';
+import invitationRoutes from './routes/invitations.js';
 
 /** Construye la aplicacion. Separada del arranque para poder probarla. */
 export function createApp() {
@@ -46,6 +47,7 @@ export function createApp() {
 
   app.use('/api/auth', authRoutes);
   app.use('/api/profiles', profileRoutes);
+  app.use('/api/invitations', invitationRoutes);
 
   app.use((_req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));
 

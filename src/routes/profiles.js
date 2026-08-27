@@ -1,14 +1,103 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import * as Perfil from '../models/Profile.js';
+import * as Invitacion from '../models/Invitation.js';
 import { requireAuth, requireOwner, requireAdmin } from '../middleware/auth.js';
 import { scheduleRebuild } from '../lib/rebuild.js';
+import { obtenerDB } from '../db.js';
 
 const router = Router();
 
 // La foto llega ya comprimida por el navegador (400x400 WebP). Este limite
 // es la red de seguridad por si alguien llama la API por fuera del panel.
 const MAX_FOTO_BYTES = 200 * 1024;
+
+/**
+ * Slugs que no puede tomar un cliente porque chocarian con una pagina del
+ * sitio o con una ruta de la API. Sin esto, alguien con el slug "crear"
+ * dejaria inaccesible el formulario de alta.
+ */
+const RESERVADOS = new Set([
+  'crear', 'admin', 'index', 'api', 'fotos', 'og', '404', 'registro',
+  'disponible', 'todos', 'login', 'null', 'undefined', 'www', 'static', 'assets',
+]);
+
+/* ------------------------------------------------------- alta de clientes */
+
+// Van antes de "/:slug" a proposito: en Express gana la primera que coincida,
+// y "registro" es un slug sintacticamente valido.
+
+const registroLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Espera un rato e intenta de nuevo.' },
+});
+
+/** Lista para el panel de administracion: incluye los despublicados. */
+router.get('/todos', requireAdmin, (_req, res) => {
+  res.json(Perfil.listarTodos().map(Perfil.aPublico));
+});
+
+router.get('/disponible/:slug', (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+
+  if (!/^[a-z0-9-]{3,40}$/.test(slug)) {
+    return res.json({ disponible: false, motivo: 'Solo minusculas, numeros y guiones (3 a 40).' });
+  }
+  if (RESERVADOS.has(slug)) {
+    return res.json({ disponible: false, motivo: 'Esa direccion esta reservada.' });
+  }
+  if (Perfil.porSlug(slug)) {
+    return res.json({ disponible: false, motivo: 'Ya esta ocupada.' });
+  }
+  res.json({ disponible: true });
+});
+
+/** Alta desde el enlace de invitacion. La invitacion se gasta al usarse. */
+router.post('/registro', registroLimiter, async (req, res, next) => {
+  const { token, slug, name, role, tagline, footer, theme, links, password } = req.body || {};
+
+  const revision = Invitacion.revisar(token);
+  if (!revision.ok) return res.status(410).json({ error: revision.motivo });
+
+  if (!password || String(password).length < 8) {
+    return res.status(400).json({ error: 'La clave debe tener al menos 8 caracteres' });
+  }
+
+  const slugLimpio = String(slug || '').toLowerCase();
+  if (RESERVADOS.has(slugLimpio)) {
+    return res.status(409).json({ error: 'Esa direccion esta reservada. Elige otra.' });
+  }
+  if (Perfil.porSlug(slugLimpio)) {
+    return res.status(409).json({ error: 'Esa direccion ya esta ocupada. Elige otra.' });
+  }
+
+  try {
+    const passwordHash = await bcrypt.hash(String(password), 12);
+
+    // En una transaccion: si algo falla, ni se crea el perfil ni se gasta la
+    // invitacion. Sin esto un error a medias dejaria la invitacion quemada.
+    const alta = obtenerDB().transaction(() => {
+      const perfil = Perfil.crear({
+        slug: slugLimpio, name, role, tagline, footer, theme, links, passwordHash,
+        // El cliente eligio su propia clave: no hay nada que pedirle cambiar.
+        mustChangePassword: false,
+      });
+      Invitacion.marcarUsada(token, slugLimpio);
+      return perfil;
+    });
+
+    const perfil = alta();
+    scheduleRebuild();
+    res.status(201).json({ profile: Perfil.aPublico(perfil) });
+  } catch (err) {
+    if (err.name === 'TypeError' || err instanceof RangeError) return next(err);
+    res.status(400).json({ error: err.message });
+  }
+});
 
 /* --------------------------------------------------------------- publico */
 

@@ -34,6 +34,21 @@ CREATE TABLE IF NOT EXISTS profiles (
 );
 
 CREATE INDEX IF NOT EXISTS idx_profiles_published ON profiles(published);
+
+-- Invitaciones para que el cliente cree su propio perfil.
+-- Un solo uso y con caducidad: si no, quien reenvie el enlace podria dar de
+-- alta perfiles en el dominio sin control.
+CREATE TABLE IF NOT EXISTS invitations (
+  token        TEXT PRIMARY KEY,
+  nota         TEXT NOT NULL DEFAULT '',
+  plantilla    TEXT,
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  used_at      TEXT,
+  used_by_slug TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_invitations_used ON invitations(used_at);
 `;
 
 /**

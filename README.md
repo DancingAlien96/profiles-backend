@@ -41,6 +41,13 @@ solo build.
 | `POST` | `/api/auth/password` | dueño (token) |
 | `PUT` | `/api/profiles/:slug` | dueño (token) |
 | `PUT` | `/api/profiles/:slug/photo` | dueño (token) |
+| `GET` | `/api/profiles/disponible/:slug` | público — comprueba si la dirección está libre |
+| `POST` | `/api/profiles/registro` | público, con token de invitación |
+| `GET` | `/api/invitations/:token` | público — estado de una invitación |
+| `GET` | `/api/profiles/todos` | admin (`x-admin-key`) |
+| `POST` | `/api/invitations` | admin (`x-admin-key`) |
+| `GET` | `/api/invitations` | admin (`x-admin-key`) |
+| `DELETE` | `/api/invitations/:token` | admin (`x-admin-key`) |
 | `POST` | `/api/profiles` | admin (`x-admin-key`) |
 | `POST` | `/api/profiles/:slug/reset-password` | admin (`x-admin-key`) |
 | `PATCH` | `/api/profiles/:slug/published` | admin (`x-admin-key`) |
@@ -159,22 +166,47 @@ cd /var/www/perfiles-api && git pull && npm ci --omit=dev && sudo systemctl rest
 
 Los logs salen en `journalctl -u perfiles-api -f`.
 
-## Administrar clientes
+## Dar de alta a un cliente
+
+Lo normal es que el cliente cree su propia tarjeta desde un enlace de
+invitación. Se genera desde el panel en `/admin` del sitio, o desde aquí:
+
+```bash
+npm run invitar -- --para "Clara Molina" --plantilla abogado
+npm run invitar -- --listar
+```
+
+El enlace **sirve una sola vez** y caduca a los 14 días. Sin eso, quien
+reenviara el enlace podría dar de alta perfiles en tu dominio sin control.
+
+En el formulario el cliente elige su propia clave, así que no hay claves
+adivinables circulando por WhatsApp.
+
+### Crear un perfil tú mismo
+
+Si prefieres montarlo tú y entregarlo hecho:
 
 ```bash
 npm run crear-perfil -- --slug juanperez --nombre "Juan Pérez" --tel 47694804 --cargo "Arquitecto" --tema marfil-oro
 ```
 
 Imprime la clave inicial (por ejemplo `Juan4804`): el primer nombre más los
-últimos cuatro dígitos del teléfono. Se la entregas al cliente y el panel le
-exigirá cambiarla en cuanto entre.
+últimos cuatro dígitos del teléfono. Como esa clave es adivinable, el panel le
+exige cambiarla en cuanto entre.
 
 ```bash
 npm run borrar-perfil -- --slug juanperez
 ```
 
-Para ocultar un perfil sin perder los datos, usa
+Para ocultar un perfil sin perder los datos, usa el botón del panel o
 `PATCH /api/profiles/<slug>/published` con la cabecera `x-admin-key`.
+
+### Direcciones reservadas
+
+Un cliente no puede tomar slugs como `crear`, `admin`, `api`, `fotos` u `og`:
+chocarían con páginas del sitio o rutas de la API. La lista está en
+`src/routes/profiles.js`; si algún día agregas una página nueva al frontend,
+añade su nombre ahí.
 
 ## Fotos
 
@@ -202,6 +234,10 @@ del VPS.
 - Un cliente solo puede editar su propio perfil, y solo los campos de
   contenido: el slug, la clave y el estado de publicación no son editables
   desde el panel.
+- Las invitaciones son de un solo uso y caducan; un alta que falla a mitad no
+  quema la invitación, porque se hace en una transacción.
+- Las rutas de administración están limitadas a 60 intentos por IP cada 15
+  minutos, y el alta pública a 15 por hora.
 
 ## Pruebas
 

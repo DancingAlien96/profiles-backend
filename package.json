@@ -12,7 +12,8 @@
     "test": "node test/humo.mjs",
     "borrar-perfil": "node scripts/borrar-perfil.js",
     "verificar": "node scripts/verificar.js",
-    "respaldar": "node scripts/respaldar.js"
+    "respaldar": "node scripts/respaldar.js",
+    "invitar": "node scripts/invitar.js"
   },
   "engines": {
     "node": ">=20"
