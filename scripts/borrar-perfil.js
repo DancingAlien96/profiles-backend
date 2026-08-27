@@ -9,9 +9,8 @@
  */
 import 'dotenv/config';
 import readline from 'node:readline/promises';
-import mongoose from 'mongoose';
-import { connectDB } from '../src/db.js';
-import Profile from '../src/models/Profile.js';
+import { conectarDB, cerrarDB } from '../src/db.js';
+import * as Perfil from '../src/models/Profile.js';
 
 function arg(name) {
   const i = process.argv.indexOf(`--${name}`);
@@ -26,18 +25,18 @@ if (!slug) {
   process.exit(1);
 }
 
-await connectDB();
+conectarDB();
 
-const perfil = await Profile.findOne({ slug: slug.toLowerCase() });
+const perfil = Perfil.porSlug(slug);
 if (!perfil) {
   console.error(`No existe ningun perfil con el slug "${slug}".`);
-  await mongoose.disconnect();
+  cerrarDB();
   process.exit(1);
 }
 
 console.log(`\n  Slug   : ${perfil.slug}`);
 console.log(`  Nombre : ${perfil.name}`);
-console.log(`  Creado : ${perfil.createdAt.toLocaleDateString('es-GT')}\n`);
+console.log(`  Creado : ${new Date(perfil.created_at).toLocaleDateString('es-GT')}\n`);
 
 if (!sinPreguntar) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -46,12 +45,12 @@ if (!sinPreguntar) {
 
   if (respuesta.trim() !== perfil.slug) {
     console.log('Cancelado. No se borro nada.');
-    await mongoose.disconnect();
+    cerrarDB();
     process.exit(0);
   }
 }
 
-await Profile.deleteOne({ _id: perfil._id });
+Perfil.borrar(perfil.slug);
 console.log(`\nPerfil "${perfil.slug}" borrado. Vuelve a desplegar el sitio para que desaparezca la pagina.\n`);
 
-await mongoose.disconnect();
+cerrarDB();

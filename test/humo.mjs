@@ -1,19 +1,17 @@
 /**
- * Prueba de humo del flujo completo, contra una MongoDB en memoria.
- * No toca el cluster real ni necesita conexion a internet tras la primera vez.
+ * Prueba de humo del flujo completo, contra una base SQLite en memoria.
+ * No toca la base real ni necesita red.
  *
  *   npm test
  */
 import assert from 'node:assert/strict';
-import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
+import { conectarDB, cerrarDB } from '../src/db.js';
 
 const ADMIN_KEY = 'clave-admin-de-prueba';
 process.env.JWT_SECRET = 'secreto-de-prueba-suficientemente-largo';
 process.env.ADMIN_KEY = ADMIN_KEY;
 
 let BASE;
-let mongo;
 let servidor;
 const fallos = [];
 
@@ -38,9 +36,8 @@ async function pedir(ruta, opciones = {}) {
 
 /* --------------------------------------------------------- arranque */
 
-console.log('Levantando MongoDB en memoria...');
-mongo = await MongoMemoryServer.create();
-await mongoose.connect(mongo.getUri('perfiles-test'));
+// Base en memoria: cada corrida arranca limpia y no toca ningun archivo.
+conectarDB(':memory:');
 
 // La app se levanta en este mismo proceso, en un puerto que asigna el sistema.
 const { createApp } = await import('../src/app.js');
@@ -233,8 +230,7 @@ await prueba('la lista publica alimenta el build', async () => {
 /* ----------------------------------------------------------- cierre */
 
 servidor.close();
-await mongoose.disconnect();
-await mongo.stop();
+cerrarDB();
 
 console.log(fallos.length ? `\n${fallos.length} prueba(s) fallaron.\n` : '\nTodas las pruebas pasaron.\n');
 process.exit(fallos.length ? 1 : 0);

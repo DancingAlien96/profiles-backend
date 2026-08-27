@@ -8,9 +8,8 @@
  */
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
-import mongoose from 'mongoose';
-import { connectDB } from '../src/db.js';
-import Profile from '../src/models/Profile.js';
+import { conectarDB, cerrarDB } from '../src/db.js';
+import * as Perfil from '../src/models/Profile.js';
 
 function arg(name, fallback = null) {
   const i = process.argv.indexOf(`--${name}`);
@@ -37,11 +36,11 @@ if (!slug || !nombre) {
 
 const clave = arg('clave') || clavePorDefecto(nombre, telefono);
 
-await connectDB();
+conectarDB();
 
-if (await Profile.findOne({ slug: slug.toLowerCase() })) {
+if (Perfil.porSlug(slug)) {
   console.error(`Ya existe un perfil con el slug "${slug}".`);
-  await mongoose.disconnect();
+  cerrarDB();
   process.exit(1);
 }
 
@@ -56,15 +55,20 @@ const links = telefono
     ]
   : [];
 
-await Profile.create({
-  slug: slug.toLowerCase(),
-  name: nombre,
-  role,
-  theme,
-  links,
-  passwordHash: await bcrypt.hash(clave, 12),
-  mustChangePassword: true,
-});
+try {
+  Perfil.crear({
+    slug,
+    name: nombre,
+    role,
+    theme,
+    links,
+    passwordHash: await bcrypt.hash(clave, 12),
+  });
+} catch (err) {
+  console.error(`No se pudo crear el perfil: ${err.message}`);
+  cerrarDB();
+  process.exit(1);
+}
 
 console.log('\n  Perfil creado');
 console.log(`  URL      : /${slug.toLowerCase()}`);
@@ -73,4 +77,4 @@ console.log(`  Tema     : ${theme}`);
 console.log(`  Clave    : ${clave}   <-- entregasela al cliente`);
 console.log('  El panel le pedira cambiarla en el primer ingreso.\n');
 
-await mongoose.disconnect();
+cerrarDB();

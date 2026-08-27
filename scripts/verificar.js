@@ -7,7 +7,8 @@
  * el proxy mal configurado, el CORS incompleto, HTTPS ausente.
  */
 import 'dotenv/config';
-import mongoose from 'mongoose';
+import fs from 'node:fs';
+import { conectarDB, cerrarDB } from '../src/db.js';
 import { cargarConfig } from '../src/config.js';
 
 const DOMINIO = process.argv.includes('--dominio')
@@ -69,18 +70,36 @@ if (config.host === '127.0.0.1' || config.host === 'localhost') {
 
 console.log('\nBase de datos');
 try {
-  await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
-  const perfiles = await mongoose.connection.db.collection('profiles').countDocuments();
-  ok(`conecta con Atlas`, `base "${mongoose.connection.name}", ${perfiles} perfil(es)`);
-  if (mongoose.connection.name === 'test') {
-    mal('la base se llama "test"', 'Falta /perfiles en MONGODB_URI, antes del "?".');
+  const db = conectarDB(config.rutaDB);
+  const total = db.prepare('SELECT COUNT(*) n FROM profiles').get().n;
+  const modo = db.pragma('journal_mode', { simple: true });
+  const bytes = config.rutaDB === ':memory:' ? 0 : fs.statSync(config.rutaDB).size;
+
+  ok('la base abre correctamente', `${total} perfil(es), ${(bytes / 1024).toFixed(1)} KB`);
+
+  if (modo !== 'wal') {
+    aviso(
+      `la base no esta en modo WAL (${modo})`,
+      'Un build podria bloquearse si coincide con un guardado.'
+    );
+  } else {
+    ok('modo WAL activo', 'leer y escribir a la vez no se bloquea');
   }
-  await mongoose.disconnect();
+
+  // El archivo no debe quedar legible por cualquier usuario del VPS: contiene
+  // los hashes de las claves de los clientes.
+  if (process.platform !== 'win32' && config.rutaDB !== ':memory:') {
+    const modo8 = (fs.statSync(config.rutaDB).mode & 0o777).toString(8);
+    if (modo8.endsWith('0') || modo8.endsWith('4')) {
+      ok('permisos del archivo', modo8);
+    } else {
+      aviso(`el archivo es legible por otros usuarios (${modo8})`, `chmod 600 ${config.rutaDB}`);
+    }
+  }
+
+  cerrarDB();
 } catch (err) {
-  mal(
-    `no conecta con Atlas: ${err.message}`,
-    'Revisa que la IP del VPS este autorizada en Network Access de Atlas.'
-  );
+  mal(`no se pudo abrir la base: ${err.message}`, 'Revisa DB_PATH y los permisos del directorio.');
 }
 
 /* ------------------------------------------------------------- el proxy */

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
-import Profile from '../models/Profile.js';
+import * as Perfil from '../models/Profile.js';
 import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -17,8 +17,13 @@ const loginLimiter = rateLimit({
   message: { error: 'Demasiados intentos. Espera 15 minutos e intenta de nuevo.' },
 });
 
-const MAX_ATTEMPTS = 8;
-const LOCK_MINUTES = 15;
+const MAX_INTENTOS = 8;
+const BLOQUEO_MINUTOS = 15;
+
+// Hash bcrypt real de una clave aleatoria que nadie conoce. Comparar contra el
+// cuando el perfil no existe gasta el mismo tiempo que un intento legitimo
+// (~370 ms), de modo que el tiempo de respuesta no delata que slugs existen.
+const HASH_SEÑUELO = '$2a$12$VJYnZuUbwaQ7ERAsi3cqLO7vs9nkSkUGbriqFBA99Rv1e.xr7880.';
 
 router.post('/login', loginLimiter, async (req, res) => {
   const { slug, password } = req.body || {};
@@ -26,56 +31,54 @@ router.post('/login', loginLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Faltan datos' });
   }
 
-  const profile = await Profile.findOne({ slug: String(slug).toLowerCase() }).select(
-    '+passwordHash +failedAttempts +lockedUntil'
-  );
+  const perfil = Perfil.porSlugConClave(slug);
 
-  // Respuesta identica exista o no el perfil, para no revelar cuales existen.
-  const invalid = () => res.status(401).json({ error: 'Clave incorrecta' });
-  if (!profile) {
-    await bcrypt.compare(password, '$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinva');
-    return invalid();
+  const invalido = () => res.status(401).json({ error: 'Clave incorrecta' });
+  if (!perfil) {
+    await bcrypt.compare(String(password), HASH_SEÑUELO);
+    return invalido();
   }
 
-  if (profile.lockedUntil && profile.lockedUntil > new Date()) {
-    const mins = Math.ceil((profile.lockedUntil - Date.now()) / 60000);
-    return res.status(429).json({ error: `Perfil bloqueado por ${mins} minuto(s) tras varios intentos fallidos.` });
+  if (perfil.locked_until && new Date(perfil.locked_until) > new Date()) {
+    const minutos = Math.ceil((new Date(perfil.locked_until) - Date.now()) / 60000);
+    return res
+      .status(429)
+      .json({ error: `Perfil bloqueado por ${minutos} minuto(s) tras varios intentos fallidos.` });
   }
 
-  const ok = await bcrypt.compare(String(password), profile.passwordHash);
-  if (!ok) {
-    profile.failedAttempts = (profile.failedAttempts || 0) + 1;
-    if (profile.failedAttempts >= MAX_ATTEMPTS) {
-      profile.lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60000);
-      profile.failedAttempts = 0;
+  const correcta = await bcrypt.compare(String(password), perfil.password_hash);
+  if (!correcta) {
+    const intentos = perfil.failed_attempts + 1;
+    if (intentos >= MAX_INTENTOS) {
+      const hasta = new Date(Date.now() + BLOQUEO_MINUTOS * 60000).toISOString();
+      Perfil.registrarIntentos(perfil.slug, { failedAttempts: 0, lockedUntil: hasta });
+    } else {
+      Perfil.registrarIntentos(perfil.slug, { failedAttempts: intentos });
     }
-    await profile.save();
-    return invalid();
+    return invalido();
   }
 
-  profile.failedAttempts = 0;
-  profile.lockedUntil = undefined;
-  await profile.save();
+  Perfil.registrarIntentos(perfil.slug, { failedAttempts: 0, lockedUntil: null });
 
-  const token = jwt.sign({ slug: profile.slug }, process.env.JWT_SECRET, { expiresIn: '2h' });
-  res.json({ token, profile: profile.toPublic() });
+  const token = jwt.sign({ slug: perfil.slug }, process.env.JWT_SECRET, { expiresIn: '2h' });
+  res.json({ token, profile: Perfil.aPublico(perfil) });
 });
 
 /** Cambio de clave desde el panel. Obligatorio en el primer ingreso. */
-router.post('/password', requireAuth, async (req, res) => {
+router.post('/password', requireAuth, async (req, res, next) => {
   const { newPassword } = req.body || {};
   if (!newPassword || String(newPassword).length < 8) {
     return res.status(400).json({ error: 'La nueva clave debe tener al menos 8 caracteres' });
   }
 
-  const profile = await Profile.findOne({ slug: req.auth.slug }).select('+passwordHash');
-  if (!profile) return res.status(404).json({ error: 'Perfil no encontrado' });
-
-  profile.passwordHash = await bcrypt.hash(String(newPassword), 12);
-  profile.mustChangePassword = false;
-  await profile.save();
-
-  res.json({ ok: true });
+  try {
+    const hash = await bcrypt.hash(String(newPassword), 12);
+    const cambios = Perfil.guardarClave(req.auth.slug, hash, { mustChange: false });
+    if (!cambios) return res.status(404).json({ error: 'Perfil no encontrado' });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 export default router;

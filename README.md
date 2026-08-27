@@ -1,7 +1,7 @@
 # profiles-backend
 
 API de las tarjetas de presentación digitales editables.
-Express + Mongoose, desplegada en un VPS detras de Nginx.
+Express + SQLite, desplegada en un VPS detrás de Nginx.
 
 En produccion vive en **https://backtarjetas.ecodama.online**
 
@@ -12,7 +12,7 @@ Frontend: [profiles-frontend](https://github.com/DancingAlien96/profiles-fronten
 ```
 El cliente abre su página  ──►  HTML estático en Netlify   (instantáneo)
                                         │
-Pulsa el botón de editar   ──►  esta API (VPS) + MongoDB    (solo el dueño)
+Pulsa el botón de editar   ──►  esta API (VPS) + SQLite     (solo el dueño)
                                         │
               Al guardar   ──►  build hook de Netlify
                                         │
@@ -47,18 +47,49 @@ solo build.
 
 ## Puesta en marcha
 
-### MongoDB Atlas
+### Base de datos
 
-Cluster gratuito (M0) con una base llamada `perfiles`.
+SQLite, en un solo archivo. No hay servidor de base de datos que instalar,
+configurar ni mantener: el proyecto tiene decenas de perfiles, con escrituras
+esporádicas de un cliente a la vez, que es justo donde SQLite rinde mejor.
 
-Dos detalles que cuestan tiempo si se pasan por alto:
+La ruta se define en `DB_PATH`. En el VPS conviene ponerla **fuera** del
+directorio del código, para que un `git pull` nunca la roce:
 
-- **La cadena que copia Atlas no incluye el nombre de la base.** Termina en
-  `.mongodb.net/?appName=...`; hay que insertar `/perfiles` antes del `?` o
-  Mongoose escribirá en una base llamada `test`.
-- **En Network Access hay que autorizar la IP del VPS.** Como el VPS tiene IP
-  fija, se agrega solo esa en vez de abrir `0.0.0.0/0`. Sin esto la API arranca
-  pero no logra conectarse, y el error no es evidente.
+```bash
+sudo mkdir -p /var/lib/perfiles-api
+sudo chown deploy:deploy /var/lib/perfiles-api
+sudo chmod 700 /var/lib/perfiles-api
+# en el .env:  DB_PATH=/var/lib/perfiles-api/perfiles.db
+```
+
+El archivo contiene los hashes de las claves de tus clientes, así que no debe
+quedar legible por otros usuarios del sistema. `npm run verificar` lo comprueba.
+
+La base abre en modo WAL, de forma que el build del frontend puede leer los
+perfiles mientras un cliente guarda, sin que ninguno espere al otro.
+
+### Respaldos
+
+```bash
+npm run respaldar
+```
+
+Usa la API de backup de SQLite, que produce una copia consistente aunque
+alguien esté guardando en ese momento — copiar el archivo con `cp` mientras hay
+escrituras puede dejarte una copia corrupta. Conserva los últimos 14 y borra
+los más viejos.
+
+Para automatizarlo hay una línea de cron lista en
+`deploy/respaldo-diario.cron`.
+
+Restaurar es reemplazar el archivo:
+
+```bash
+sudo systemctl stop perfiles-api
+cp /var/lib/perfiles-api/respaldos/perfiles-2026-08-27_03-00-00.db /var/lib/perfiles-api/perfiles.db
+sudo systemctl start perfiles-api
+```
 
 ### Local
 
@@ -84,7 +115,7 @@ git clone https://github.com/DancingAlien96/profiles-backend.git /var/www/perfil
 cd /var/www/perfiles-api
 npm ci --omit=dev
 cp .env.example .env && nano .env      # llena los valores
-chmod 600 .env                          # contiene las credenciales de Atlas
+chmod 600 .env
 
 sudo cp deploy/perfiles-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -114,11 +145,11 @@ en silencio y dice cómo arreglar cada una:
   Netlify se sirve por HTTPS y el navegador bloquea el contenido mixto;
 - que `CORS_ORIGINS` incluya el dominio de Netlify, que si falta produce un
   error de CORS poco descriptivo en el navegador del cliente;
-- que Atlas conecte y que la base no sea `test`.
+- que la base abra, esté en modo WAL y no sea legible por otros usuarios.
 
 El arranque también valida la configuración: si falta una variable, el
-`JWT_SECRET` sigue siendo el de ejemplo o la URI de Atlas no trae el nombre de
-la base, el servicio no arranca y dice exactamente qué corregir.
+`JWT_SECRET` sigue siendo el de ejemplo o no se puede escribir en el directorio
+de la base, el servicio no arranca y dice exactamente qué corregir.
 
 Para actualizar tras un cambio:
 
@@ -147,13 +178,16 @@ Para ocultar un perfil sin perder los datos, usa
 
 ## Fotos
 
-Se guardan en MongoDB. Para que eso sea sostenible, el navegador recorta la
-foto cuadrada, la escala a 400×400 y la convierte a WebP **antes** de subirla
-(unos 40 KB cada una), y la API rechaza cualquier imagen mayor a 200 KB.
+Se guardan en la propia base, como BLOB. El navegador recorta la foto cuadrada,
+la escala a 400×400 y la convierte a WebP **antes** de subirla; medido con
+fotos reales, cada una queda en unos 15 KB. La API rechaza cualquier imagen
+mayor a 200 KB como red de seguridad.
+
 Durante el build, Netlify las baja y las publica como archivos estáticos, de
 modo que las visitas nunca le piden imágenes al VPS.
 
-Con esos tamaños, los 512 MB del cluster gratuito dan para miles de perfiles.
+Con ese tamaño, mil perfiles ocupan unos 15 MB: el límite práctico es el disco
+del VPS.
 
 ## Seguridad
 
@@ -175,5 +209,6 @@ Con esos tamaños, los 512 MB del cluster gratuito dan para miles de perfiles.
 npm test
 ```
 
-Levanta una MongoDB en memoria y recorre el flujo completo: creación, login,
-permisos entre clientes, subida de foto, límites y cambio de clave.
+Levanta la API con una base SQLite en memoria y recorre el flujo completo:
+creación, login, permisos entre clientes, subida de foto, límites y cambio de
+clave. Tarda unos segundos y no toca la base real.

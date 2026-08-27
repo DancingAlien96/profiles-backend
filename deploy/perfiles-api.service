@@ -21,7 +21,6 @@ EnvironmentFile=/var/www/perfiles-api/.env
 Restart=always
 RestartSec=5
 
-# La API solo escucha en localhost: Nginx es quien la expone al exterior.
 Environment=NODE_ENV=production
 
 # Endurecimiento basico
@@ -29,7 +28,14 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/www/perfiles-api
+
+# La base vive fuera del directorio del codigo para que un despliegue no la
+# toque nunca. Este es el unico lugar donde el servicio puede escribir.
+#   sudo mkdir -p /var/lib/perfiles-api
+#   sudo chown deploy:deploy /var/lib/perfiles-api
+#   sudo chmod 700 /var/lib/perfiles-api
+# y en el .env:  DB_PATH=/var/lib/perfiles-api/perfiles.db
+ReadWritePaths=/var/lib/perfiles-api
 
 StandardOutput=journal
 StandardError=journal

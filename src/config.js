@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 /**
  * Validacion de la configuracion antes de arrancar.
  *
@@ -16,16 +19,22 @@ export function cargarConfig() {
   const errores = [];
   const avisos = [];
 
-  const { MONGODB_URI, JWT_SECRET, ADMIN_KEY, CORS_ORIGINS, NETLIFY_BUILD_HOOK } = process.env;
+  const { DB_PATH, JWT_SECRET, ADMIN_KEY, CORS_ORIGINS, NETLIFY_BUILD_HOOK } = process.env;
 
-  if (!MONGODB_URI) {
-    errores.push('Falta MONGODB_URI.');
-  } else if (/mongodb\+srv:\/\/[^/]+\/\?/.test(MONGODB_URI)) {
-    // Es el error mas facil de cometer al copiar la cadena desde Atlas.
-    errores.push(
-      'MONGODB_URI no incluye el nombre de la base. Inserta /perfiles antes del "?" ' +
-        'o Mongoose escribira en una base llamada "test".'
-    );
+  const rutaDB = DB_PATH || './data/perfiles.db';
+  if (rutaDB !== ':memory:') {
+    // Si el directorio no existe o no se puede escribir, mejor saberlo ahora
+    // que cuando un cliente intente guardar.
+    const carpeta = path.dirname(path.resolve(rutaDB));
+    try {
+      fs.mkdirSync(carpeta, { recursive: true });
+      fs.accessSync(carpeta, fs.constants.W_OK);
+    } catch {
+      errores.push(
+        `No se puede escribir en ${carpeta}. Revisa que exista y que el usuario ` +
+          'del servicio tenga permiso.'
+      );
+    }
   }
 
   if (!JWT_SECRET) {
@@ -73,6 +82,7 @@ export function cargarConfig() {
   for (const a of avisos) console.warn(`[api] aviso: ${a}`);
 
   return {
+    rutaDB,
     port: Number(process.env.PORT) || 3000,
     // Solo localhost: Nginx es quien expone la API al exterior. Escuchar en
     // 0.0.0.0 dejaria el puerto alcanzable desde internet si el firewall se

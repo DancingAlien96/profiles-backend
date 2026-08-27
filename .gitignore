@@ -1,3 +1,10 @@
 node_modules/
 .env
 *.log
+
+# La base y sus respaldos nunca se versionan
+data/
+respaldos/
+*.db
+*.db-wal
+*.db-shm

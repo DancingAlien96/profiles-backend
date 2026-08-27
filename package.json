@@ -11,21 +11,19 @@
     "crear-perfil": "node scripts/crear-perfil.js",
     "test": "node test/humo.mjs",
     "borrar-perfil": "node scripts/borrar-perfil.js",
-    "verificar": "node scripts/verificar.js"
+    "verificar": "node scripts/verificar.js",
+    "respaldar": "node scripts/respaldar.js"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
-    "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.9.5"
-  },
-  "devDependencies": {
-    "mongodb-memory-server": "^11.2.0"
+    "jsonwebtoken": "^9.0.2"
   }
 }

@@ -1,0 +1,7 @@
+# Respaldo diario de la base, a las 3 de la madrugada.
+#
+#   sudo crontab -u deploy -e
+#   (y pega la linea de abajo)
+#
+# Conserva los ultimos 14 respaldos y borra los mas viejos.
+0 3 * * * cd /var/www/perfiles-api && /usr/bin/node scripts/respaldar.js --destino /var/lib/perfiles-api/respaldos >> /var/log/perfiles-respaldo.log 2>&1
