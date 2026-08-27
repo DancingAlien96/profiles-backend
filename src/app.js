@@ -28,7 +28,21 @@ export function createApp() {
   app.use(express.json({ limit: '400kb' }));
 
   // Health check: lo usan el build del frontend y el monitoreo del VPS.
-  app.get('/api/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
+  // Con la clave de administrador devuelve ademas que IP ve Express, para
+  // poder comprobar desde fuera si Nginx esta pasando X-Forwarded-For.
+  app.get('/api/health', (req, res) => {
+    const respuesta = { ok: true, ts: Date.now() };
+
+    if (process.env.ADMIN_KEY && req.get('x-admin-key') === process.env.ADMIN_KEY) {
+      respuesta.diagnostico = {
+        ipVista: req.ip,
+        forwardedFor: req.get('x-forwarded-for') || null,
+        protocolo: req.protocol,
+      };
+    }
+
+    res.json(respuesta);
+  });
 
   app.use('/api/auth', authRoutes);
   app.use('/api/profiles', profileRoutes);

@@ -97,20 +97,28 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo certbot --nginx -d backtarjetas.ecodama.online
 ```
 
-Comprobación:
+### Comprobar el despliegue
 
 ```bash
-curl https://backtarjetas.ecodama.online/api/health
+npm run verificar
 ```
 
-Tres cosas fáciles de olvidar:
+Corre esto **en el VPS** después de desplegar. Comprueba las cosas que fallan
+en silencio y dice cómo arreglar cada una:
 
-- **La API escucha solo en el puerto 3000 de localhost.** No abras el 3000 en
-  el firewall: Nginx es el único que debe llegarle.
-- **HTTPS es obligatorio.** El sitio en Netlify se sirve por HTTPS, así que el
-  navegador bloquea las peticiones del panel a un backend en HTTP.
-- **`CORS_ORIGINS` debe incluir el dominio de Netlify.** Si falta, el panel
-  falla con un error de CORS que en el navegador no dice mucho.
+- que la API escuche solo en localhost y que el puerto 3000 no sea alcanzable
+  desde internet, saltándose Nginx y HTTPS;
+- que Nginx pase `X-Forwarded-For`; sin esa cabecera el límite de intentos ve
+  una sola IP y bloquea a todos los clientes juntos;
+- que el dominio responda por HTTPS, que es obligatorio porque el sitio en
+  Netlify se sirve por HTTPS y el navegador bloquea el contenido mixto;
+- que `CORS_ORIGINS` incluya el dominio de Netlify, que si falta produce un
+  error de CORS poco descriptivo en el navegador del cliente;
+- que Atlas conecte y que la base no sea `test`.
+
+El arranque también valida la configuración: si falta una variable, el
+`JWT_SECRET` sigue siendo el de ejemplo o la URI de Atlas no trae el nombre de
+la base, el servicio no arranca y dice exactamente qué corregir.
 
 Para actualizar tras un cambio:
 

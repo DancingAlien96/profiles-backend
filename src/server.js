@@ -1,12 +1,22 @@
 import 'dotenv/config';
 import { createApp } from './app.js';
 import { connectDB } from './db.js';
+import { cargarConfig } from './config.js';
 
-const port = process.env.PORT || 3000;
+let config;
+try {
+  config = cargarConfig();
+} catch {
+  process.exit(1);
+}
 
 connectDB()
-  .then(() => createApp().listen(port, () => console.log(`[api] escuchando en :${port}`)))
+  .then(() =>
+    createApp().listen(config.port, config.host, () =>
+      console.log(`[api] escuchando en ${config.host}:${config.port}`)
+    )
+  )
   .catch((err) => {
-    console.error('[api] no se pudo iniciar:', err.message);
+    console.error('[api] no se pudo conectar a la base de datos:', err.message);
     process.exit(1);
   });

@@ -10,7 +10,8 @@
     "dev": "node --watch src/server.js",
     "crear-perfil": "node scripts/crear-perfil.js",
     "test": "node test/humo.mjs",
-    "borrar-perfil": "node scripts/borrar-perfil.js"
+    "borrar-perfil": "node scripts/borrar-perfil.js",
+    "verificar": "node scripts/verificar.js"
   },
   "engines": {
     "node": ">=20"
