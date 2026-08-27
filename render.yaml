@@ -1,0 +1,24 @@
+# Despliegue en Render. Este repositorio es solo la API, asi que la raiz del
+# servicio es la raiz del repositorio.
+# Las variables con sync:false se cargan a mano en el panel de Render.
+services:
+  - type: web
+    name: perfiles-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: NETLIFY_BUILD_HOOK
+        sync: false
+      - key: REBUILD_DELAY_SECONDS
+        value: "60"
