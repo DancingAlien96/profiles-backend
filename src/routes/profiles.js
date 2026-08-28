@@ -53,7 +53,7 @@ router.get('/disponible/:slug', (req, res) => {
 
 /** Alta desde el enlace de invitacion. La invitacion se gasta al usarse. */
 router.post('/registro', registroLimiter, async (req, res, next) => {
-  const { token, slug, name, role, tagline, footer, theme, links, password } = req.body || {};
+  const { token, slug, name, role, tagline, footer, theme, links, hours, password } = req.body || {};
 
   const revision = Invitacion.revisar(token);
   if (!revision.ok) return res.status(410).json({ error: revision.motivo });
@@ -76,7 +76,7 @@ router.post('/registro', registroLimiter, async (req, res, next) => {
     // invitacion. Sin esto un error a medias dejaria la invitacion quemada.
     const alta = obtenerDB().transaction(() => {
       const perfil = Perfil.crear({
-        slug: slugLimpio, name, role, tagline, footer, theme, links, passwordHash,
+        slug: slugLimpio, name, role, tagline, footer, theme, links, hours, passwordHash,
         // El cliente eligio su propia clave: no hay nada que pedirle cambiar.
         mustChangePassword: false,
       });
@@ -124,7 +124,7 @@ router.put('/:slug', requireAuth, requireOwner, (req, res) => {
   }
 
   // Lista blanca: el cliente edita contenido, nunca slug, clave ni estado.
-  const permitidos = ['name', 'role', 'tagline', 'footer', 'links', 'theme'];
+  const permitidos = ['name', 'role', 'tagline', 'footer', 'links', 'theme', 'hours'];
   const cambios = {};
   for (const campo of permitidos) {
     if (req.body[campo] !== undefined) cambios[campo] = req.body[campo];
@@ -167,7 +167,7 @@ router.put('/:slug/photo', requireAuth, requireOwner, (req, res) => {
 /* ----------------------------------------------------- administracion */
 
 router.post('/', requireAdmin, async (req, res, next) => {
-  const { slug, name, password, theme, role, tagline, footer, links } = req.body || {};
+  const { slug, name, password, theme, role, tagline, footer, links, hours } = req.body || {};
   if (!slug || !name || !password) {
     return res.status(400).json({ error: 'slug, name y password son obligatorios' });
   }
@@ -178,7 +178,7 @@ router.post('/', requireAdmin, async (req, res, next) => {
 
   try {
     const perfil = Perfil.crear({
-      slug, name, role, tagline, footer, theme, links,
+      slug, name, role, tagline, footer, theme, links, hours,
       passwordHash: await bcrypt.hash(String(password), 12),
     });
     scheduleRebuild();

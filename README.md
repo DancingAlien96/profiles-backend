@@ -235,6 +235,33 @@ chocarían con páginas del sitio o rutas de la API. La lista está en
 `src/models/Profile.js`; si algún día agregas una página nueva al frontend,
 añade su nombre ahí.
 
+## Horario de atención
+
+Opcional. Se guarda como JSON en la columna `hours`:
+
+```json
+{
+  "tz": "America/Guatemala",
+  "days": [
+    { "ranges": [["08:00","12:00"], ["14:00","18:00"]] },
+    { "closed": true }
+  ]
+}
+```
+
+Siete entradas, **la primera es lunes**. Se admiten dos turnos por día porque
+cerrar a mediodía es lo normal aquí.
+
+La API valida el formato de las horas, que el cierre sea posterior a la
+apertura, que los dos turnos no se solapen y que la zona horaria exista. Un
+horario con los siete días cerrados se guarda como `null` y la tarjeta
+simplemente no muestra la sección.
+
+El "abierto ahora" lo calcula el navegador de quien mira la tarjeta, no el
+build: si no, la página quedaría congelada con el estado que hubiera al
+generarse. Se calcula en la zona del negocio, así que alguien que abra la
+tarjeta desde otro país ve si está abierto **allá**.
+
 ## Fotos
 
 Se guardan en la propia base, como BLOB. El navegador recorta la foto cuadrada,

@@ -546,6 +546,151 @@ await prueba('no sugiere una direccion reservada', async () => {
   assert.equal(cuerpo.sugerencia, 'admin-2');
 });
 
+/* ------------------------------------------------------------ horarios */
+
+const HORARIO_OK = {
+  tz: 'America/Guatemala',
+  days: [
+    { ranges: [['08:00', '12:00'], ['14:00', '18:00']] },
+    { ranges: [['08:00', '18:00']] },
+    { ranges: [['08:00', '18:00']] },
+    { ranges: [['08:00', '18:00']] },
+    { ranges: [['08:00', '18:00']] },
+    { ranges: [['08:00', '12:00']] },
+    { closed: true },
+  ],
+};
+
+await prueba('guarda un horario con dos turnos y dia cerrado', async () => {
+  const { estado, cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ hours: HORARIO_OK }),
+  });
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.profile.hours.days.length, 7);
+  assert.deepEqual(cuerpo.profile.hours.days[0].ranges, [['08:00', '12:00'], ['14:00', '18:00']]);
+  assert.equal(cuerpo.profile.hours.days[6].closed, true);
+  assert.equal(cuerpo.profile.hours.tz, 'America/Guatemala');
+});
+
+await prueba('el horario sobrevive a otras ediciones', async () => {
+  await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tagline: 'Cambio sin tocar el horario' }),
+  });
+  const { cuerpo } = await pedir('/api/profiles/juanperez');
+  assert.equal(cuerpo.hours.days.length, 7);
+});
+
+await prueba('rechaza una hora mal escrita', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ hours: { days: [{ ranges: [['8am', '18:00']] }, {}, {}, {}, {}, {}, {}] } }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('rechaza un cierre anterior a la apertura', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ hours: { days: [{ ranges: [['18:00', '08:00']] }, {}, {}, {}, {}, {}, {}] } }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('rechaza dos turnos que se solapan', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      hours: { days: [{ ranges: [['08:00', '14:00'], ['12:00', '18:00']] }, {}, {}, {}, {}, {}, {}] },
+    }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('rechaza una zona horaria inventada', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ hours: { tz: 'Marte/Olympus', days: HORARIO_OK.days } }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('un horario con todos los dias cerrados se guarda como vacio', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ hours: { days: Array(7).fill({ closed: true }) } }),
+  });
+  assert.equal(cuerpo.profile.hours, null);
+});
+
+await prueba('se puede quitar el horario', async () => {
+  await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ hours: HORARIO_OK }),
+  });
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ hours: null }),
+  });
+  assert.equal(cuerpo.profile.hours, null);
+});
+
+await prueba('ordena los turnos aunque lleguen al reves', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      hours: { days: [{ ranges: [['14:00', '18:00'], ['08:00', '12:00']] }, {}, {}, {}, {}, {}, {}] },
+    }),
+  });
+  assert.deepEqual(cuerpo.profile.hours.days[0].ranges, [['08:00', '12:00'], ['14:00', '18:00']]);
+});
+
+/* ------------------------------------------------- sustitucion de foto */
+
+await prueba('cambiar la foto sustituye la anterior, no la acumula', async () => {
+  const roja =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  // PNG 2x2 distinto, para que cambie el tamaño
+  const azul =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFUlEQVR42mNk+M/AwMDAxAADRDIAAEZaAgdmZmDCAAAAAElFTkSuQmCC';
+
+  await pedir('/api/profiles/juanperez/photo', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ dataUrl: roja }),
+  });
+  const primera = await fetch(`${BASE}/api/profiles/juanperez/photo`);
+  const bytes1 = (await primera.arrayBuffer()).byteLength;
+
+  await pedir('/api/profiles/juanperez/photo', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ dataUrl: azul }),
+  });
+  const segunda = await fetch(`${BASE}/api/profiles/juanperez/photo`);
+  const bytes2 = (await segunda.arrayBuffer()).byteLength;
+
+  assert.notEqual(bytes1, bytes2, 'la foto deberia haber cambiado');
+
+  // Y en la base debe haber exactamente una fila para ese perfil
+  const { obtenerDB } = await import('../src/db.js');
+  const filas = obtenerDB()
+    .prepare('SELECT COUNT(*) n FROM profiles WHERE slug = ?')
+    .get('juanperez').n;
+  assert.equal(filas, 1);
+});
+
 /* ----------------------------------------------------------- cierre */
 
 servidor.close();

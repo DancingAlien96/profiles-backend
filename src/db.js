@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   footer               TEXT NOT NULL DEFAULT '',
   theme                TEXT NOT NULL DEFAULT 'oro-tech',
   links                TEXT NOT NULL DEFAULT '[]',
+  hours                TEXT,
   photo                BLOB,
   photo_type           TEXT,
   photo_updated_at     TEXT,
@@ -98,6 +99,11 @@ function migrar(db) {
   if (!columnas('invitations').includes('slug')) {
     db.exec('ALTER TABLE invitations ADD COLUMN slug TEXT');
     console.log('[db] migracion: invitations.slug');
+  }
+
+  if (!columnas('profiles').includes('hours')) {
+    db.exec('ALTER TABLE profiles ADD COLUMN hours TEXT');
+    console.log('[db] migracion: profiles.hours');
   }
 }
 
