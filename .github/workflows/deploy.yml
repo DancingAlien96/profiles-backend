@@ -1,0 +1,43 @@
+name: Deploy perfiles-api
+
+# Despliega la API al VPS por SSH en cada push a main.
+# El servidor corre la API con systemd (servicio: perfiles-api) en el puerto 5000.
+#
+# Requiere 3 secrets en el repo (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST     -> IP del servidor (13.140.138.144)
+#   DEPLOY_USER     -> usuario de deploy (deploy)
+#   DEPLOY_SSH_KEY  -> llave privada SSH cuyo .pub está en authorized_keys de deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-perfiles-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd /var/www/perfiles-api
+            echo "==> git pull"
+            git pull --ff-only origin main
+            echo "==> npm ci"
+            npm ci --omit=dev
+            echo "==> restart service"
+            sudo /usr/bin/systemctl restart perfiles-api
+            sleep 2
+            systemctl is-active perfiles-api
+            echo "==> deploy OK"
