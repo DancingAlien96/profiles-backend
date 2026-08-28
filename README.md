@@ -273,6 +273,14 @@ formulario, el panel o una llamada directa a la API.
 El código de país sale de `CODIGO_PAIS` (por defecto `502`); un número que ya
 lo traiga se deja como está.
 
+## Servicios
+
+Lista opcional de hasta 8, cada uno `{ label, icon }`. El icono sale de un
+catálogo cerrado (`src/lib/servicios.js`); cualquier otro valor cae en el de
+por defecto, para que nadie meta marcado suelto en su propia página.
+
+Se muestran en una cuadrícula bajo la descripción.
+
 ## Horario de atención
 
 Opcional. Se guarda como JSON en la columna `hours`:

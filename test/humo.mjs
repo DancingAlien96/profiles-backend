@@ -905,6 +905,80 @@ await prueba('el cupo de un cliente no afecta al de otro', async () => {
   assert.equal(estado, 200);
 });
 
+/* --------------------------------------------------------- servicios */
+
+// Las pruebas del limite dejaron el cupo agotado a proposito; aqui vuelve a
+// levantarse porque lo que se comprueba es otra cosa.
+process.env.EDICIONES_POR_DIA = '10000';
+{
+  const { obtenerDB } = await import('../src/db.js');
+  obtenerDB().prepare('UPDATE profiles SET edits_day = NULL, edits_count = 0').run();
+}
+
+await prueba('guarda los servicios con su icono', async () => {
+  const { estado, cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      services: [
+        { label: 'Consulta general', icon: 'consulta' },
+        { label: 'Chequeos', icon: 'corazon' },
+      ],
+    }),
+  });
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.profile.services.length, 2);
+  assert.equal(cuerpo.profile.services[0].icon, 'consulta');
+});
+
+await prueba('descarta los servicios sin texto', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      services: [{ label: 'Uno', icon: 'check' }, { label: '   ', icon: 'check' }],
+    }),
+  });
+  assert.equal(cuerpo.profile.services.length, 1);
+});
+
+await prueba('un icono inventado cae en el de por defecto', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ services: [{ label: 'Algo', icon: '<script>alert(1)</script>' }] }),
+  });
+  assert.equal(cuerpo.profile.services[0].icon, 'check');
+});
+
+await prueba('rechaza mas de ocho servicios', async () => {
+  const muchos = Array.from({ length: 9 }, (_, i) => ({ label: `S${i}`, icon: 'check' }));
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ services: muchos }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('rechaza un servicio con texto larguisimo', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ services: [{ label: 'x'.repeat(60), icon: 'check' }] }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('se pueden quitar todos los servicios', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ services: [] }),
+  });
+  assert.deepEqual(cuerpo.profile.services, []);
+});
+
 /* ----------------------------------------------------------- cierre */
 
 servidor.close();

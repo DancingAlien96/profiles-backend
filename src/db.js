@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   theme                TEXT NOT NULL DEFAULT 'oro-tech',
   links                TEXT NOT NULL DEFAULT '[]',
   hours                TEXT,
+  services             TEXT NOT NULL DEFAULT '[]',
   photo                BLOB,
   photo_type           TEXT,
   photo_updated_at     TEXT,
@@ -113,6 +114,11 @@ function migrar(db) {
   if (!columnas('profiles').includes('hours')) {
     db.exec('ALTER TABLE profiles ADD COLUMN hours TEXT');
     console.log('[db] migracion: profiles.hours');
+  }
+
+  if (!columnas('profiles').includes('services')) {
+    db.exec("ALTER TABLE profiles ADD COLUMN services TEXT NOT NULL DEFAULT '[]'");
+    console.log('[db] migracion: profiles.services');
   }
 
   if (!columnas('profiles').includes('edits_day')) {

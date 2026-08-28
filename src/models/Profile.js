@@ -1,6 +1,7 @@
 import { obtenerDB } from '../db.js';
 import { normalizarHorario } from '../lib/horarios.js';
 import { normalizarUrl } from '../lib/enlaces.js';
+import { normalizarServicios } from '../lib/servicios.js';
 
 export const TIPOS_ENLACE = [
   'whatsapp', 'linkedin', 'email', 'phone', 'web',
@@ -187,6 +188,11 @@ export function validar(campos) {
     if (horario.error) return horario.error;
   }
 
+  if (campos.services !== undefined) {
+    const servicios = normalizarServicios(campos.services);
+    if (servicios.error) return servicios.error;
+  }
+
   if (campos.links !== undefined) {
     if (!Array.isArray(campos.links)) return 'Los enlaces deben ser una lista';
     if (campos.links.length > LIMITES.enlaces) return `Maximo ${LIMITES.enlaces} enlaces`;
@@ -242,6 +248,7 @@ export function aPublico(fila) {
     footer: fila.footer,
     links: JSON.parse(fila.links),
     hours: fila.hours ? JSON.parse(fila.hours) : null,
+    services: fila.services ? JSON.parse(fila.services) : [],
     theme: fila.theme,
     published: Boolean(fila.published),
     hasPhoto: Boolean(fila.photo_updated_at),
@@ -255,7 +262,7 @@ export function aPublico(fila) {
 
 // La columna photo se excluye a proposito: es el unico campo pesado y solo
 // hace falta en la ruta que sirve la imagen.
-const CAMPOS = `slug, name, role, tagline, footer, theme, links, hours,
+const CAMPOS = `slug, name, role, tagline, footer, theme, links, hours, services,
   photo_type, photo_updated_at, must_change_password, failed_attempts,
   locked_until, published, created_at, updated_at`;
 
@@ -296,7 +303,7 @@ export function obtenerFoto(slug) {
  * la eligio el mismo al darse de alta.
  */
 export function crear({
-  slug, name, role, tagline, footer, theme, links, hours, passwordHash,
+  slug, name, role, tagline, footer, theme, links, hours, services, passwordHash,
   mustChangePassword = true,
 }) {
   const datos = {
@@ -308,26 +315,29 @@ export function crear({
     theme: theme || 'oro-tech',
     links: links || [],
     hours,
+    services: services || [],
   };
 
   const error = validar(datos);
   if (error) throw new Error(error);
 
   const horario = normalizarHorario(hours);
+  const listaServicios = normalizarServicios(services);
 
   const t = ahora();
   obtenerDB()
     .prepare(
       `INSERT INTO profiles
-        (slug, name, role, tagline, footer, theme, links, hours, password_hash,
+        (slug, name, role, tagline, footer, theme, links, hours, services, password_hash,
          must_change_password, published, created_at, updated_at)
-       VALUES (@slug, @name, @role, @tagline, @footer, @theme, @links, @hours, @passwordHash,
-         @mustChange, 1, @t, @t)`
+       VALUES (@slug, @name, @role, @tagline, @footer, @theme, @links, @hours, @services,
+         @passwordHash, @mustChange, 1, @t, @t)`
     )
     .run({
       ...datos,
       links: JSON.stringify(limpiarEnlaces(datos.links)),
       hours: horario.hours ? JSON.stringify(horario.hours) : null,
+      services: JSON.stringify(listaServicios.services),
       passwordHash,
       mustChange: mustChangePassword ? 1 : 0,
       t,
@@ -361,6 +371,13 @@ export function actualizar(slug, campos) {
     if (horario.error) throw new Error(horario.error);
     asignaciones.push('hours = @hours');
     valores.hours = horario.hours ? JSON.stringify(horario.hours) : null;
+  }
+
+  if (campos.services !== undefined) {
+    const servicios = normalizarServicios(campos.services);
+    if (servicios.error) throw new Error(servicios.error);
+    asignaciones.push('services = @services');
+    valores.services = JSON.stringify(servicios.services);
   }
 
   if (asignaciones.length) {
