@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
-import { rebuildPending } from './lib/rebuild.js';
+import { estadoBuilds } from './lib/rebuild.js';
 import profileRoutes from './routes/profiles.js';
 import invitationRoutes from './routes/invitations.js';
 
@@ -43,7 +43,7 @@ export function createApp() {
         // Sin el build hook los cambios se guardan pero el sitio nunca se
         // republica, que es un fallo mudo: todo parece funcionar.
         buildHook: process.env.NETLIFY_BUILD_HOOK ? 'configurado' : 'SIN CONFIGURAR',
-        rebuildPendiente: rebuildPending(),
+        deploys: estadoBuilds(),
         corsOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean).length || 'ninguno (se acepta cualquiera)',
       };
     }

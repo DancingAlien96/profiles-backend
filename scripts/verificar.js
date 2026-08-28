@@ -143,6 +143,22 @@ if (!salud.res) {
     ok('Nginx pasa la IP real del visitante', d.ipVista);
   }
 
+  if (d?.deploys) {
+    const { esteMes, max, restantes, creditosEstimados } = d.deploys;
+    const detalle = `${esteMes} de ${max} este mes, ~${creditosEstimados} creditos`;
+    if (restantes === 0) {
+      mal(
+        'se agoto el presupuesto de deploys del mes',
+        'Los cambios de tus clientes quedan guardados y se publicaran al empezar ' +
+          'el mes. Sube DEPLOYS_MAX_POR_MES solo si te sobran creditos en Netlify.'
+      );
+    } else if (restantes <= 3) {
+      aviso(`quedan pocos deploys este mes (${restantes})`, detalle);
+    } else {
+      ok('presupuesto de deploys', detalle);
+    }
+  }
+
   if (d && d.buildHook === 'configurado') {
     ok('el build hook de Netlify esta configurado');
   } else if (d) {
