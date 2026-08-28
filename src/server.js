@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { createApp } from './app.js';
 import { conectarDB, cerrarDB } from './db.js';
 import { cargarConfig } from './config.js';
+import { recuperarPendiente } from './lib/rebuild.js';
 
 let config;
 try {
@@ -14,9 +15,10 @@ try {
   process.exit(1);
 }
 
-const servidor = createApp().listen(config.port, config.host, () =>
-  console.log(`[api] escuchando en ${config.host}:${config.port}`)
-);
+const servidor = createApp().listen(config.port, config.host, () => {
+  console.log(`[api] escuchando en ${config.host}:${config.port}`);
+  recuperarPendiente();
+});
 
 servidor.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

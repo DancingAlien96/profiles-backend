@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS invitations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_invitations_used ON invitations(used_at);
+
+-- Estado suelto del servicio. Ahora mismo solo guarda si quedo un cambio sin
+-- publicar, para que un reinicio no se lo lleve por delante.
+CREATE TABLE IF NOT EXISTS meta (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL
+);
 `;
 
 /**
