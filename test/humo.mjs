@@ -691,6 +691,92 @@ await prueba('cambiar la foto sustituye la anterior, no la acumula', async () =>
   assert.equal(filas, 1);
 });
 
+/* ------------------------------- enlaces armados desde lo que escribe */
+
+await prueba('arma el enlace de WhatsApp desde el numero suelto', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ links: [{ type: 'whatsapp', label: 'WhatsApp', url: '4769 4804' }] }),
+  });
+  assert.equal(cuerpo.profile.links[0].url, 'https://wa.me/50247694804');
+});
+
+await prueba('respeta el numero que ya trae codigo de pais', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ links: [{ type: 'whatsapp', label: 'WhatsApp', url: '+502 4769-4804' }] }),
+  });
+  assert.equal(cuerpo.profile.links[0].url, 'https://wa.me/50247694804');
+});
+
+await prueba('no toca una direccion de WhatsApp ya completa', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ links: [{ type: 'whatsapp', label: 'WhatsApp', url: 'https://wa.me/50211112222' }] }),
+  });
+  assert.equal(cuerpo.profile.links[0].url, 'https://wa.me/50211112222');
+});
+
+await prueba('arma tel: y mailto: solos', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      links: [
+        { type: 'phone', label: 'Llamar', url: '2233 4455' },
+        { type: 'email', label: 'Correo', url: 'clara@bufete.gt' },
+      ],
+    }),
+  });
+  assert.equal(cuerpo.profile.links[0].url, 'tel:+50222334455');
+  assert.equal(cuerpo.profile.links[1].url, 'mailto:clara@bufete.gt');
+});
+
+await prueba('acepta el usuario de redes con o sin arroba', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      links: [
+        { type: 'instagram', label: 'Instagram', url: '@salonbella' },
+        { type: 'tiktok', label: 'TikTok', url: 'mitienda' },
+      ],
+    }),
+  });
+  assert.equal(cuerpo.profile.links[0].url, 'https://instagram.com/salonbella');
+  assert.equal(cuerpo.profile.links[1].url, 'https://tiktok.com/@mitienda');
+});
+
+await prueba('completa el https:// que falta en un sitio web', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ links: [{ type: 'web', label: 'Mi sitio', url: 'midominio.com' }] }),
+  });
+  assert.equal(cuerpo.profile.links[0].url, 'https://midominio.com');
+});
+
+await prueba('rechaza un correo sin arroba', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ links: [{ type: 'email', label: 'Correo', url: 'esto-no-es-correo' }] }),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('rechaza un WhatsApp sin ningun digito', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ links: [{ type: 'whatsapp', label: 'WhatsApp', url: 'mi numero' }] }),
+  });
+  assert.equal(estado, 400);
+});
+
 /* ----------------------------------------------------------- cierre */
 
 servidor.close();

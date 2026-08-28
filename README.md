@@ -235,6 +235,26 @@ chocarían con páginas del sitio o rutas de la API. La lista está en
 `src/models/Profile.js`; si algún día agregas una página nueva al frontend,
 añade su nombre ahí.
 
+## Enlaces
+
+El cliente escribe lo mínimo y la API arma la dirección. Nadie tiene que
+saberse el `https://wa.me/502…` de memoria:
+
+| Escribe | Se guarda |
+|---|---|
+| `4769 4804` (WhatsApp) | `https://wa.me/50247694804` |
+| `2233 4455` (teléfono) | `tel:+50222334455` |
+| `clara@bufete.gt` | `mailto:clara@bufete.gt` |
+| `@salonbella` | `https://instagram.com/salonbella` |
+| `midominio.com` | `https://midominio.com` |
+
+Si pega la dirección completa, se respeta tal cual. La normalización vive en
+`src/lib/enlaces.js` y se aplica al guardar, así que vale igual desde el
+formulario, el panel o una llamada directa a la API.
+
+El código de país sale de `CODIGO_PAIS` (por defecto `502`); un número que ya
+lo traiga se deja como está.
+
 ## Horario de atención
 
 Opcional. Se guarda como JSON en la columna `hours`:

@@ -1,5 +1,6 @@
 import { obtenerDB } from '../db.js';
 import { normalizarHorario } from '../lib/horarios.js';
+import { normalizarUrl } from '../lib/enlaces.js';
 
 export const TIPOS_ENLACE = [
   'whatsapp', 'linkedin', 'email', 'phone', 'web',
@@ -122,6 +123,9 @@ export function validar(campos) {
       const url = texto(enlace.url);
       if (!label) return 'Cada enlace necesita un texto de boton';
       if (!url) return 'Cada enlace necesita una direccion';
+      if (!normalizarUrl(enlace.type, url)) {
+        return `No se pudo armar el enlace de ${enlace.type} con "${url}"`;
+      }
       if (label.length > LIMITES.label) return `El texto del boton no puede pasar de ${LIMITES.label} caracteres`;
       if (url.length > LIMITES.url) return `La direccion no puede pasar de ${LIMITES.url} caracteres`;
       if (enlace.sublabel && String(enlace.sublabel).length > LIMITES.sublabel) {
@@ -133,14 +137,20 @@ export function validar(campos) {
   return null;
 }
 
-/** Normaliza los enlaces a la forma exacta que se guarda. */
+/**
+ * Normaliza los enlaces a la forma exacta que se guarda.
+ * La direccion se arma segun el tipo, para que el cliente pueda escribir solo
+ * su numero o su usuario en vez de la URL completa.
+ */
 const limpiarEnlaces = (links) =>
-  (links || []).map((e) => ({
-    type: e.type,
-    label: String(e.label).trim(),
-    sublabel: e.sublabel ? String(e.sublabel).trim() : '',
-    url: String(e.url).trim(),
-  }));
+  (links || [])
+    .map((e) => ({
+      type: e.type,
+      label: String(e.label).trim(),
+      sublabel: e.sublabel ? String(e.sublabel).trim() : '',
+      url: normalizarUrl(e.type, e.url),
+    }))
+    .filter((e) => e.url);
 
 /* ------------------------------------------------------- conversion */
 
