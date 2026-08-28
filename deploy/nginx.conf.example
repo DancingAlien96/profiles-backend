@@ -17,7 +17,8 @@ server {
     client_max_body_size 1m;
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        # Debe coincidir con PORT del .env. En este servidor es 5000.
+        proxy_pass http://127.0.0.1:5000;
         proxy_http_version 1.1;
 
         # Sin esta cabecera, express-rate-limit veria la IP de Nginx en todas
