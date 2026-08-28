@@ -142,6 +142,17 @@ if (!salud.res) {
   } else {
     ok('Nginx pasa la IP real del visitante', d.ipVista);
   }
+
+  if (d && d.buildHook === 'configurado') {
+    ok('el build hook de Netlify esta configurado');
+  } else if (d) {
+    mal(
+      'NETLIFY_BUILD_HOOK sin configurar',
+      'Los cambios se guardan pero el sitio no se republica nunca: el cliente ' +
+        'edita, ve "guardado" y su pagina no cambia. Crea el hook en Netlify y ' +
+        'pegalo en el .env.'
+    );
+  }
 }
 
 /* --------------------------------------------- el puerto directo, expuesto */
