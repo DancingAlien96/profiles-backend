@@ -25,7 +25,9 @@ const ahora = () => new Date().toISOString();
 
 /* ------------------------------------------------- limite de cambios */
 
-const LIMITE_POR_DEFECTO = 20;
+// Sirviendo desde el VPS publicar no cuesta nada, asi que el tope es solo
+// para frenar un abuso o un fallo que dispare guardados en bucle.
+const LIMITE_POR_DEFECTO = 100;
 const ZONA_POR_DEFECTO = 'America/Guatemala';
 
 /**
@@ -49,9 +51,8 @@ export const limiteDiario = () => {
 /**
  * Apunta un cambio del dueño y dice si puede seguir.
  *
- * Cada guardado acaba disparando un build de Netlify, cuyos minutos son
- * limitados; el tope evita que un cliente los agote el mismo dia. Se hace en
- * una transaccion para que dos peticiones a la vez no cuenten como una.
+ * Se hace en una transaccion para que dos peticiones a la vez no cuenten
+ * como una sola.
  *
  * Devuelve { permitido, restantes, limite }.
  */
