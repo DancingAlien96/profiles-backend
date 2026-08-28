@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS profiles (
   failed_attempts      INTEGER NOT NULL DEFAULT 0,
   locked_until         TEXT,
   published            INTEGER NOT NULL DEFAULT 1,
+  edits_day            TEXT,
+  edits_count          INTEGER NOT NULL DEFAULT 0,
   created_at           TEXT NOT NULL,
   updated_at           TEXT NOT NULL
 );
@@ -104,6 +106,12 @@ function migrar(db) {
   if (!columnas('profiles').includes('hours')) {
     db.exec('ALTER TABLE profiles ADD COLUMN hours TEXT');
     console.log('[db] migracion: profiles.hours');
+  }
+
+  if (!columnas('profiles').includes('edits_day')) {
+    db.exec('ALTER TABLE profiles ADD COLUMN edits_day TEXT');
+    db.exec('ALTER TABLE profiles ADD COLUMN edits_count INTEGER NOT NULL DEFAULT 0');
+    console.log('[db] migracion: profiles.edits_day, profiles.edits_count');
   }
 }
 

@@ -49,7 +49,9 @@ solo build.
 | `GET` | `/api/invitations` | admin (`x-admin-key`) |
 | `DELETE` | `/api/invitations/:token` | admin (`x-admin-key`) |
 | `POST` | `/api/profiles` | admin (`x-admin-key`) |
+| `GET` | `/api/profiles/:slug/cupo` | dueño (token) — cambios que le quedan hoy |
 | `POST` | `/api/profiles/:slug/reset-password` | admin (`x-admin-key`) |
+| `POST` | `/api/profiles/:slug/reiniciar-cambios` | admin (`x-admin-key`) |
 | `PATCH` | `/api/profiles/:slug/published` | admin (`x-admin-key`) |
 
 ## Puesta en marcha
@@ -234,6 +236,22 @@ Un cliente no puede tomar slugs como `crear`, `admin`, `api`, `fotos` u `og`:
 chocarían con páginas del sitio o rutas de la API. La lista está en
 `src/models/Profile.js`; si algún día agregas una página nueva al frontend,
 añade su nombre ahí.
+
+## Límite de cambios al día
+
+Cada guardado acaba en un build de Netlify, y esos minutos son limitados. Cada
+cliente tiene **20 cambios al día** (`EDICIONES_POR_DIA`); al agotarlos, el
+guardado se rechaza con un mensaje claro y su perfil queda como estaba.
+
+El día se cuenta en la zona del negocio (`ZONA_HORARIA`), no en la del
+servidor: con el VPS en UTC, el contador se reiniciaría a media tarde para un
+cliente en Guatemala.
+
+Subir y cambiar la foto también cuenta, porque también dispara un build.
+
+Si alguien se queda sin cambios y lo necesita, se los devuelves desde el panel
+con el botón **Dar cambios**, o con
+`POST /api/profiles/<slug>/reiniciar-cambios` y la cabecera `x-admin-key`.
 
 ## Enlaces
 

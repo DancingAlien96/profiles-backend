@@ -22,6 +22,83 @@ const LIMITES = {
 
 const ahora = () => new Date().toISOString();
 
+/* ------------------------------------------------- limite de cambios */
+
+const LIMITE_POR_DEFECTO = 20;
+const ZONA_POR_DEFECTO = 'America/Guatemala';
+
+/**
+ * Fecha de hoy en la zona del negocio, no la del servidor: si el VPS corre en
+ * UTC, el contador se reiniciaria a media tarde para un cliente en Guatemala.
+ */
+function diaDeHoy() {
+  const zona = process.env.ZONA_HORARIA || ZONA_POR_DEFECTO;
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: zona }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+export const limiteDiario = () => {
+  const valor = Number(process.env.EDICIONES_POR_DIA);
+  return Number.isFinite(valor) && valor > 0 ? valor : LIMITE_POR_DEFECTO;
+};
+
+/**
+ * Apunta un cambio del dueño y dice si puede seguir.
+ *
+ * Cada guardado acaba disparando un build de Netlify, cuyos minutos son
+ * limitados; el tope evita que un cliente los agote el mismo dia. Se hace en
+ * una transaccion para que dos peticiones a la vez no cuenten como una.
+ *
+ * Devuelve { permitido, restantes, limite }.
+ */
+export function registrarCambio(slug) {
+  const db = obtenerDB();
+  const limite = limiteDiario();
+  const hoy = diaDeHoy();
+
+  const operacion = db.transaction(() => {
+    const fila = db
+      .prepare('SELECT edits_day, edits_count FROM profiles WHERE slug = ?')
+      .get(String(slug).toLowerCase());
+
+    if (!fila) return { permitido: false, restantes: 0, limite, noExiste: true };
+
+    // Dia nuevo: el contador vuelve a empezar.
+    const usados = fila.edits_day === hoy ? fila.edits_count : 0;
+
+    if (usados >= limite) return { permitido: false, restantes: 0, limite };
+
+    db.prepare('UPDATE profiles SET edits_day = ?, edits_count = ? WHERE slug = ?')
+      .run(hoy, usados + 1, String(slug).toLowerCase());
+
+    return { permitido: true, restantes: limite - (usados + 1), limite };
+  });
+
+  return operacion();
+}
+
+/** Cuantos cambios le quedan hoy, sin apuntar ninguno. */
+export function cambiosRestantes(slug) {
+  const limite = limiteDiario();
+  const fila = obtenerDB()
+    .prepare('SELECT edits_day, edits_count FROM profiles WHERE slug = ?')
+    .get(String(slug).toLowerCase());
+
+  if (!fila) return limite;
+  const usados = fila.edits_day === diaDeHoy() ? fila.edits_count : 0;
+  return Math.max(0, limite - usados);
+}
+
+/** Devuelve los cambios de hoy a un cliente que se quedo sin ellos. */
+export function reiniciarCambios(slug) {
+  return obtenerDB()
+    .prepare('UPDATE profiles SET edits_day = NULL, edits_count = 0 WHERE slug = ?')
+    .run(String(slug).toLowerCase()).changes;
+}
+
 /**
  * Slugs que nadie puede tomar porque chocarian con una pagina del sitio o con
  * una ruta de la API. Sin esto, un cliente con el slug "crear" dejaria

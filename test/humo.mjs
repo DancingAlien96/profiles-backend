@@ -11,6 +11,11 @@ const ADMIN_KEY = 'clave-admin-de-prueba';
 process.env.JWT_SECRET = 'secreto-de-prueba-suficientemente-largo';
 process.env.ADMIN_KEY = ADMIN_KEY;
 
+// El conjunto hace muchos mas de 20 guardados sobre el mismo perfil, asi que
+// el limite diario se levanta y solo se baja en las pruebas que lo verifican.
+process.env.EDICIONES_POR_DIA = '10000';
+const LIMITE_PRUEBA = 20;
+
 let BASE;
 let servidor;
 const fallos = [];
@@ -775,6 +780,129 @@ await prueba('rechaza un WhatsApp sin ningun digito', async () => {
     body: JSON.stringify({ links: [{ type: 'whatsapp', label: 'WhatsApp', url: 'mi numero' }] }),
   });
   assert.equal(estado, 400);
+});
+
+/* ------------------------------------------- limite de cambios al dia */
+
+// A partir de aqui se comprueba el limite, con el valor real.
+process.env.EDICIONES_POR_DIA = String(LIMITE_PRUEBA);
+{
+  const { obtenerDB } = await import('../src/db.js');
+  obtenerDB().prepare('UPDATE profiles SET edits_day = NULL, edits_count = 0').run();
+}
+
+await prueba('avisa cuantos cambios quedan al guardar', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tagline: 'contando cambios' }),
+  });
+  assert.equal(typeof cuerpo.restantes, 'number');
+  assert.ok(cuerpo.restantes < LIMITE_PRUEBA);
+});
+
+await prueba('el dueño puede consultar su cupo', async () => {
+  const { estado, cuerpo } = await pedir('/api/profiles/juanperez/cupo', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.limite, LIMITE_PRUEBA);
+  assert.ok(cuerpo.restantes >= 0 && cuerpo.restantes < LIMITE_PRUEBA);
+});
+
+await prueba('bloquea al agotar los cambios del dia', async () => {
+  // Gastar lo que quede
+  let restantes = (await pedir('/api/profiles/juanperez/cupo', {
+    headers: { Authorization: `Bearer ${token}` },
+  })).cuerpo.restantes;
+
+  for (let i = 0; i < restantes; i++) {
+    await pedir('/api/profiles/juanperez', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ tagline: `cambio ${i}` }),
+    });
+  }
+
+  const { estado, cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tagline: 'uno de mas' }),
+  });
+  assert.equal(estado, 429);
+  assert.match(cuerpo.error, /cambios de hoy/);
+});
+
+await prueba('el perfil no se toca cuando se bloquea', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez');
+  assert.notEqual(cuerpo.tagline, 'uno de mas');
+});
+
+await prueba('la foto tambien cuenta y se bloquea', async () => {
+  const dataUrl =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const { estado } = await pedir('/api/profiles/juanperez/photo', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ dataUrl }),
+  });
+  assert.equal(estado, 429);
+});
+
+await prueba('el administrador puede devolverle los cambios', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez/reiniciar-cambios', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+  });
+  assert.equal(estado, 200);
+
+  const guardado = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tagline: 'ya puedo otra vez' }),
+  });
+  assert.equal(guardado.estado, 200);
+});
+
+await prueba('reiniciar cambios exige clave de administrador', async () => {
+  const { estado } = await pedir('/api/profiles/juanperez/reiniciar-cambios', { method: 'POST' });
+  assert.equal(estado, 401);
+});
+
+await prueba('el contador se reinicia al cambiar el dia', async () => {
+  const { obtenerDB } = await import('../src/db.js');
+  // Dejarlo agotado pero con fecha de ayer
+  obtenerDB()
+    .prepare("UPDATE profiles SET edits_day = '2020-01-01', edits_count = 99 WHERE slug = ?")
+    .run('juanperez');
+
+  const { estado, cuerpo } = await pedir('/api/profiles/juanperez', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ tagline: 'dia nuevo' }),
+  });
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.restantes, LIMITE_PRUEBA - 1);
+});
+
+await prueba('el cupo de un cliente no afecta al de otro', async () => {
+  const { obtenerDB } = await import('../src/db.js');
+  obtenerDB()
+    .prepare("UPDATE profiles SET edits_day = (SELECT edits_day FROM profiles WHERE slug='juanperez'), edits_count = 99 WHERE slug = ?")
+    .run('juanperez');
+
+  const sesionOtro = await pedir('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'otrocliente', password: 'Otro1234' }),
+  });
+  const otroToken = sesionOtro.cuerpo.token;
+
+  const { estado } = await pedir('/api/profiles/otrocliente', {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${otroToken}` },
+    body: JSON.stringify({ tagline: 'yo si puedo' }),
+  });
+  assert.equal(estado, 200);
 });
 
 /* ----------------------------------------------------------- cierre */
