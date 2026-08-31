@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "API de perfiles editables (Render + MongoDB Atlas)",
+  "description": "API de perfiles editables (VPS + SQLite)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -16,7 +16,7 @@
     "invitar": "node scripts/invitar.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

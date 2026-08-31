@@ -28,11 +28,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Node 20 es el mínimo que declara "engines". Probar contra el suelo y no
-      # contra la última versión es lo que hace la prueba representativa.
+      # Node 22 es el mínimo que declara "engines", y lo impone better-sqlite3:
+      # en Node 20 instala un binario incompatible y el proceso muere con
+      # segfault, sin mensaje que lo explique.
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Instalar dependencias
