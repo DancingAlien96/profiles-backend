@@ -17,7 +17,7 @@ function arg(name, fallback = null) {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
 }
 
-const SITIO = (process.env.SITE_URL || 'https://tu-sitio.netlify.app').replace(/\/$/, '');
+const SITIO = (process.env.SITE_URL || 'https://www.professionalprofiles.online').replace(/\/$/, '');
 
 conectarDB();
 

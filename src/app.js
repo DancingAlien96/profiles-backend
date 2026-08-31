@@ -1,7 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth.js';
-import { estadoBuilds } from './lib/rebuild.js';
 import profileRoutes from './routes/profiles.js';
 import invitationRoutes from './routes/invitations.js';
 
@@ -18,8 +17,8 @@ export function createApp() {
   app.use(
     cors({
       origin(origin, cb) {
-        // Sin origin = curl, el build de Netlify, health checks. Se permite.
-        // Sin CORS_ORIGINS configurado se permite todo (desarrollo local).
+        // Sin origin = curl, el frontend desde el servidor, health checks. Se
+        // permite. Sin CORS_ORIGINS configurado se permite todo (local).
         if (!origin || !origins.length || origins.includes(origin)) return cb(null, true);
         cb(new Error(`Origen no autorizado: ${origin}`));
       },
@@ -29,7 +28,7 @@ export function createApp() {
   // El limite cubre la foto en base64 (200 KB crecen ~33% al codificar).
   app.use(express.json({ limit: '400kb' }));
 
-  // Health check: lo usan el build del frontend y el monitoreo del VPS.
+  // Health check: lo usan el frontend y el monitoreo del VPS.
   // Con la clave de administrador devuelve ademas que IP ve Express, para
   // poder comprobar desde fuera si Nginx esta pasando X-Forwarded-For.
   app.get('/api/health', (req, res) => {
@@ -40,10 +39,6 @@ export function createApp() {
         ipVista: req.ip,
         forwardedFor: req.get('x-forwarded-for') || null,
         protocolo: req.protocol,
-        // Sin el build hook los cambios se guardan pero el sitio nunca se
-        // republica, que es un fallo mudo: todo parece funcionar.
-        buildHook: process.env.NETLIFY_BUILD_HOOK ? 'configurado' : 'SIN CONFIGURAR',
-        deploys: estadoBuilds(),
         corsOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean).length || 'ninguno (se acepta cualquiera)',
       };
     }

@@ -80,7 +80,7 @@ try {
   if (modo !== 'wal') {
     aviso(
       `la base no esta en modo WAL (${modo})`,
-      'Un build podria bloquearse si coincide con un guardado.'
+      'Una visita podria bloquearse si coincide con un guardado.'
     );
   } else {
     ok('modo WAL activo', 'leer y escribir a la vez no se bloquea');
@@ -142,33 +142,6 @@ if (!salud.res) {
   } else {
     ok('Nginx pasa la IP real del visitante', d.ipVista);
   }
-
-  if (d?.deploys) {
-    const { esteMes, max, restantes, creditosEstimados } = d.deploys;
-    const detalle = `${esteMes} de ${max} este mes, ~${creditosEstimados} creditos`;
-    if (restantes === 0) {
-      mal(
-        'se agoto el presupuesto de deploys del mes',
-        'Los cambios de tus clientes quedan guardados y se publicaran al empezar ' +
-          'el mes. Sube DEPLOYS_MAX_POR_MES solo si te sobran creditos en Netlify.'
-      );
-    } else if (restantes <= 3) {
-      aviso(`quedan pocos deploys este mes (${restantes})`, detalle);
-    } else {
-      ok('presupuesto de deploys', detalle);
-    }
-  }
-
-  if (d && d.buildHook === 'configurado') {
-    ok('el build hook de Netlify esta configurado');
-  } else if (d) {
-    mal(
-      'NETLIFY_BUILD_HOOK sin configurar',
-      'Los cambios se guardan pero el sitio no se republica nunca: el cliente ' +
-        'edita, ve "guardado" y su pagina no cambia. Crea el hook en Netlify y ' +
-        'pegalo en el .env.'
-    );
-  }
 }
 
 /* --------------------------------------------- el puerto directo, expuesto */
@@ -192,7 +165,7 @@ console.log('\nCORS');
 if (!config.origenes.length) {
   mal(
     'CORS_ORIGINS esta vacio: se acepta cualquier origen',
-    'Agrega el dominio de tu sitio en Netlify.'
+    'Agrega el dominio del sitio: https://www.professionalprofiles.online'
   );
 } else {
   const publicos = config.origenes.filter(
@@ -202,7 +175,8 @@ if (!config.origenes.length) {
   if (!publicos.length) {
     mal(
       'CORS_ORIGINS solo tiene origenes locales',
-      'Agrega el dominio de tu sitio en Netlify o el panel fallara para los clientes.'
+      'Agrega el dominio publico del sitio; si algun dia el panel se sirve desde ' +
+        'otro dominio, sin el las peticiones fallaran por CORS.'
     );
   }
 

@@ -57,13 +57,6 @@ CREATE TABLE IF NOT EXISTS invitations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_invitations_used ON invitations(used_at);
-
--- Estado suelto del servicio. Ahora mismo solo guarda si quedo un cambio sin
--- publicar, para que un reinicio no se lo lleve por delante.
-CREATE TABLE IF NOT EXISTS meta (
-  clave TEXT PRIMARY KEY,
-  valor TEXT NOT NULL
-);
 `;
 
 /**
@@ -79,8 +72,8 @@ export function conectarDB(ruta = process.env.DB_PATH || './data/perfiles.db') {
 
   db = new Database(ruta);
 
-  // WAL permite leer mientras se escribe: el build del frontend puede pedir
-  // los perfiles justo mientras un cliente guarda, sin bloquearse.
+  // WAL permite leer mientras se escribe: una visita puede pedir la tarjeta
+  // justo mientras su dueño la guarda, sin que ninguna de las dos espere.
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
@@ -125,6 +118,16 @@ function migrar(db) {
     db.exec('ALTER TABLE profiles ADD COLUMN edits_day TEXT');
     db.exec('ALTER TABLE profiles ADD COLUMN edits_count INTEGER NOT NULL DEFAULT 0');
     console.log('[db] migracion: profiles.edits_day, profiles.edits_count');
+  }
+
+  // La tabla meta solo llevaba la cuenta de los deploys de Netlify. Sirviendo
+  // el sitio desde el VPS no hay nada que publicar, y nadie la lee ya.
+  const existeMeta = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
+    .get();
+  if (existeMeta) {
+    db.exec('DROP TABLE meta');
+    console.log('[db] migracion: eliminada la tabla meta (deploys de Netlify)');
   }
 }
 

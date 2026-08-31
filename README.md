@@ -10,31 +10,32 @@ Frontend: [profiles-frontend](https://github.com/DancingAlien96/profiles-fronten
 ## Cómo encaja con el frontend
 
 ```
-El cliente abre su página  ──►  HTML estático en Netlify   (instantáneo)
-                                        │
-Pulsa el botón de editar   ──►  esta API (VPS) + SQLite     (solo el dueño)
-                                        │
-              Al guardar   ──►  build hook de Netlify
-                                        │
-                                Netlify regenera las páginas leyendo esta API
+Una visita abre la tarjeta  ──►  Nginx ──► Astro (Node) ──► esta API ──► SQLite
+                                   │
+Pulsa el botón de editar    ──►  Nginx ──► /api ───────────► esta API ──► SQLite
+                                   │
+              Al guardar    ──►  el cambio se ve al instante, sin publicar nada
 ```
 
-La página pública **no** consulta esta API. Aunque el VPS responde siempre, el
-contenido tiene que estar en el HTML para que WhatsApp y LinkedIn muestren
-nombre, cargo y foto al compartir el enlace: sus crawlers no ejecutan
-JavaScript. Como efecto secundario, el sitio carga al instante y el VPS no
-recibe tráfico de visitantes, solo de ediciones.
+Las tarjetas se generan **al pedirlas**, en el mismo VPS. La respuesta lleva
+HTML completo, que es lo que necesitan los crawlers de WhatsApp y LinkedIn para
+mostrar nombre, cargo y foto al compartir el enlace: no ejecutan JavaScript.
 
-Los rebuilds se agrupan con un temporizador (`REBUILD_DELAY_SECONDS`): si el
-cliente guarda cinco veces seguidas mientras acomoda su perfil, se dispara un
-solo build.
+Antes el sitio era estático en Netlify y cada guardado disparaba un build. Esta
+API llevaba el build hook, agrupaba los guardados y racionaba los deploys para
+no agotar los créditos del plan gratuito. Nada de eso queda: guardar solo
+escribe en SQLite.
+
+A cambio, esta API sí recibe el tráfico de los visitantes, no solo el de las
+ediciones. Nginx cachea las tarjetas 60 segundos, así que una racha de visitas
+al mismo perfil no llega hasta aquí.
 
 ## Rutas
 
 | Método | Ruta | Acceso |
 |---|---|---|
-| `GET` | `/api/health` | público — para el build y el monitoreo |
-| `GET` | `/api/profiles` | público — la consume el build de Netlify |
+| `GET` | `/api/health` | público — para el monitoreo del VPS |
+| `GET` | `/api/profiles` | público — lista de perfiles publicados |
 | `GET` | `/api/profiles/:slug` | público |
 | `GET` | `/api/profiles/:slug/photo` | público |
 | `POST` | `/api/auth/login` | público — `{ slug, password }` |
@@ -75,8 +76,8 @@ sudo chmod 700 /var/lib/perfiles-api
 El archivo contiene los hashes de las claves de tus clientes, así que no debe
 quedar legible por otros usuarios del sistema. `npm run verificar` lo comprueba.
 
-La base abre en modo WAL, de forma que el build del frontend puede leer los
-perfiles mientras un cliente guarda, sin que ninguno espere al otro.
+La base abre en modo WAL, de forma que una visita puede leer la tarjeta
+mientras su dueño la guarda, sin que ninguna espere a la otra.
 
 ### Respaldos
 
@@ -150,10 +151,10 @@ en silencio y dice cómo arreglar cada una:
   desde internet, saltándose Nginx y HTTPS;
 - que Nginx pase `X-Forwarded-For`; sin esa cabecera el límite de intentos ve
   una sola IP y bloquea a todos los clientes juntos;
-- que el dominio responda por HTTPS, que es obligatorio porque el sitio en
-  Netlify se sirve por HTTPS y el navegador bloquea el contenido mixto;
-- que `CORS_ORIGINS` incluya el dominio de Netlify, que si falta produce un
-  error de CORS poco descriptivo en el navegador del cliente;
+- que el dominio responda por HTTPS, que es obligatorio porque el sitio se
+  sirve por HTTPS y el navegador bloquea el contenido mixto;
+- que `CORS_ORIGINS` tenga el dominio público del sitio y no solo orígenes
+  locales;
 - que la base abra, esté en modo WAL y no sea legible por otros usuarios.
 
 El arranque también valida la configuración: si falta una variable, el
@@ -239,15 +240,19 @@ añade su nombre ahí.
 
 ## Límite de cambios al día
 
-Cada guardado acaba en un build de Netlify, y esos minutos son limitados. Cada
-cliente tiene **20 cambios al día** (`EDICIONES_POR_DIA`); al agotarlos, el
-guardado se rechaza con un mensaje claro y su perfil queda como estaba.
+Cada cliente tiene **100 cambios al día** (`EDICIONES_POR_DIA`); al agotarlos,
+el guardado se rechaza con un mensaje claro y su perfil queda como estaba.
+
+Sirviendo el sitio desde el VPS, guardar no cuesta nada: el tope ya no protege
+ningún presupuesto y queda solo como freno ante un abuso o un fallo que dispare
+guardados en bucle. Por eso es alto — un cliente acomodando su perfil no lo
+roza.
 
 El día se cuenta en la zona del negocio (`ZONA_HORARIA`), no en la del
 servidor: con el VPS en UTC, el contador se reiniciaría a media tarde para un
 cliente en Guatemala.
 
-Subir y cambiar la foto también cuenta, porque también dispara un build.
+Subir y cambiar la foto también cuenta.
 
 Si alguien se queda sin cambios y lo necesita, se los devuelves desde el panel
 con el botón **Dar cambios**, o con
@@ -315,8 +320,9 @@ la escala a 400×400 y la convierte a WebP **antes** de subirla; medido con
 fotos reales, cada una queda en unos 15 KB. La API rechaza cualquier imagen
 mayor a 200 KB como red de seguridad.
 
-Durante el build, Netlify las baja y las publica como archivos estáticos, de
-modo que las visitas nunca le piden imágenes al VPS.
+El frontend las pide una vez por `/api/profiles/:slug/photo` y las cachea en
+disco bajo `/fotos/<slug>.webp`, con la fecha de la foto en la clave: al
+cambiarla se genera una entrada nueva y la anterior deja de usarse sola.
 
 Con ese tamaño, mil perfiles ocupan unos 15 MB: el límite práctico es el disco
 del VPS.

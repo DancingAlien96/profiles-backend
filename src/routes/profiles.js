@@ -4,7 +4,6 @@ import rateLimit from 'express-rate-limit';
 import * as Perfil from '../models/Profile.js';
 import * as Invitacion from '../models/Invitation.js';
 import { requireAuth, requireOwner, requireAdmin } from '../middleware/auth.js';
-import { scheduleRebuild } from '../lib/rebuild.js';
 import { obtenerDB } from '../db.js';
 
 const router = Router();
@@ -18,7 +17,7 @@ const MAX_FOTO_BYTES = 200 * 1024;
 // Van antes de "/:slug" a proposito: en Express gana la primera que coincida,
 // y "registro" es un slug sintacticamente valido.
 
-/** Cada guardado acaba en un build de Netlify, y esos minutos son limitados. */
+/** Tope diario de guardados: un freno ante un abuso o un fallo en bucle. */
 function errorDeCupo(cupo) {
   if (cupo.noExiste) return { error: 'Perfil no encontrado' };
   return {
@@ -97,7 +96,6 @@ router.post('/registro', registroLimiter, async (req, res, next) => {
     });
 
     const perfil = alta();
-    scheduleRebuild();
     res.status(201).json({ profile: Perfil.aPublico(perfil) });
   } catch (err) {
     if (err.name === 'TypeError' || err instanceof RangeError) return next(err);
@@ -107,7 +105,7 @@ router.post('/registro', registroLimiter, async (req, res, next) => {
 
 /* --------------------------------------------------------------- publico */
 
-/** Lista completa. La consume el build de Netlify para generar las paginas. */
+/** Lista completa de perfiles publicados. */
 router.get('/', (_req, res) => {
   res.json(Perfil.listarPublicados().map(Perfil.aPublico));
 });
@@ -123,7 +121,7 @@ router.get('/:slug/cupo', requireAuth, requireOwner, (req, res) => {
   res.json({ restantes: Perfil.cambiosRestantes(req.params.slug), limite: Perfil.limiteDiario() });
 });
 
-/** Sirve la imagen. La usa el build para bajarla y publicarla en Netlify. */
+/** Sirve la imagen. La pide el frontend para /fotos/<slug>.webp y la cachea. */
 router.get('/:slug/photo', (req, res) => {
   const fila = Perfil.obtenerFoto(req.params.slug);
   if (!fila?.photo) return res.status(404).json({ error: 'Sin foto' });
@@ -159,8 +157,7 @@ router.put('/:slug', requireAuth, requireOwner, (req, res) => {
     return res.status(400).json({ error: err.message });
   }
 
-  scheduleRebuild();
-  res.json({ profile: Perfil.aPublico(perfil), rebuild: true, restantes: cupo.restantes });
+  res.json({ profile: Perfil.aPublico(perfil), restantes: cupo.restantes });
 });
 
 /** Recibe la foto como data URL (base64) desde el panel. */
@@ -185,7 +182,6 @@ router.put('/:slug/photo', requireAuth, requireOwner, (req, res) => {
     return res.status(404).json({ error: 'Perfil no encontrado' });
   }
 
-  scheduleRebuild();
   res.json({ ok: true, bytes: buffer.length, restantes: cupo.restantes });
 });
 
@@ -206,7 +202,6 @@ router.post('/', requireAdmin, async (req, res, next) => {
       slug, name, role, tagline, footer, theme, links, hours, services,
       passwordHash: await bcrypt.hash(String(password), 12),
     });
-    scheduleRebuild();
     res.status(201).json({ profile: Perfil.aPublico(perfil) });
   } catch (err) {
     if (err instanceof RangeError || err.name === 'TypeError') return next(err);
@@ -241,7 +236,6 @@ router.patch('/:slug/published', requireAdmin, (req, res) => {
   if (!Perfil.cambiarPublicado(req.params.slug, Boolean(req.body?.published))) {
     return res.status(404).json({ error: 'Perfil no encontrado' });
   }
-  scheduleRebuild();
   res.json({ profile: Perfil.aPublico(Perfil.porSlug(req.params.slug)) });
 });
 

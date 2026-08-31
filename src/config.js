@@ -19,7 +19,7 @@ export function cargarConfig() {
   const errores = [];
   const avisos = [];
 
-  const { DB_PATH, JWT_SECRET, ADMIN_KEY, CORS_ORIGINS, NETLIFY_BUILD_HOOK } = process.env;
+  const { DB_PATH, JWT_SECRET, ADMIN_KEY, CORS_ORIGINS } = process.env;
 
   const rutaDB = DB_PATH || './data/perfiles.db';
   if (rutaDB !== ':memory:') {
@@ -56,20 +56,20 @@ export function cargarConfig() {
     .map((o) => o.trim())
     .filter(Boolean);
 
+  // En el VPS el sitio y la API comparten dominio detras de Nginx, asi que el
+  // panel llama a /api con rutas relativas y no hay CORS de por medio. La
+  // lista sigue importando: sin ella cualquier pagina puede llamar a la API
+  // desde el navegador de un visitante.
   if (!origenes.length) {
     avisos.push(
-      'CORS_ORIGINS esta vacio: se aceptara cualquier origen. Agrega el dominio ' +
-        'de Netlify antes de dar el enlace a un cliente.'
+      'CORS_ORIGINS esta vacio: se aceptara cualquier origen. En el VPS pon el ' +
+        'dominio del sitio; en local, http://localhost:4321.'
     );
   } else if (origenes.some((o) => o.startsWith('http://') && !o.includes('localhost') && !o.includes('127.0.0.1'))) {
     avisos.push(
-      'Hay un origen en http:// que no es local. Netlify sirve por HTTPS, asi que ' +
-        'el navegador bloqueara esas peticiones.'
+      'Hay un origen en http:// que no es local. El sitio se sirve por HTTPS, asi ' +
+        'que el navegador bloqueara esas peticiones.'
     );
-  }
-
-  if (!NETLIFY_BUILD_HOOK) {
-    avisos.push('NETLIFY_BUILD_HOOK sin configurar: al guardar no se regenerara el sitio.');
   }
 
   if (errores.length) {
