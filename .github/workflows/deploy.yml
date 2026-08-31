@@ -3,6 +3,10 @@ name: Deploy perfiles-api
 # Despliega la API al VPS por SSH en cada push a main.
 # El servidor corre la API con systemd (servicio: perfiles-api) en el puerto 5000.
 #
+# El deploy va detrás de las pruebas: entre un commit y el VPS no hay revisión
+# ni entorno de pruebas, así que la suite de humo es la única red debajo. Si
+# falla, el servidor ni se toca y sigue sirviendo la versión anterior.
+#
 # Requiere 3 secrets en el repo (Settings -> Secrets and variables -> Actions):
 #   DEPLOY_HOST     -> IP del servidor (13.140.138.144)
 #   DEPLOY_USER     -> usuario de deploy (deploy)
@@ -18,8 +22,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  pruebas:
+    name: Pruebas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 20 es el mínimo que declara "engines". Probar contra el suelo y no
+      # contra la última versión es lo que hace la prueba representativa.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Levanta la API con una base SQLite en memoria y recorre el flujo
+      # completo. No necesita red, secrets ni base en disco.
+      - name: npm test
+        run: npm test
+
   deploy:
     name: Deploy via SSH
+    needs: pruebas
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to server
