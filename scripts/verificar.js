@@ -11,9 +11,11 @@ import fs from 'node:fs';
 import { conectarDB, cerrarDB } from '../src/db.js';
 import { cargarConfig } from '../src/config.js';
 
+// La API no tiene dominio propio: se llega a ella por /api del dominio del
+// sitio, que es quien tiene el Nginx delante.
 const DOMINIO = process.argv.includes('--dominio')
   ? process.argv[process.argv.indexOf('--dominio') + 1]
-  : 'https://backtarjetas.ecodama.online';
+  : 'https://www.professionalprofiles.online';
 
 const VERDE = '\x1b[32m';
 const ROJO = '\x1b[31m';
@@ -132,7 +134,8 @@ if (!salud.res) {
     mal(
       'Nginx no esta pasando X-Forwarded-For',
       'Sin esa cabecera el limite de intentos ve una sola IP y bloquea a todos los ' +
-        'clientes juntos. Copia deploy/nginx.conf.example.'
+        'clientes juntos. El bloque /api/ esta en deploy/nginx.conf.example del ' +
+        'repo del frontend.'
     );
   } else if (d.ipVista === '127.0.0.1' || d.ipVista === '::1' || d.ipVista === '::ffff:127.0.0.1') {
     mal(

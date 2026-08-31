@@ -3,7 +3,8 @@
 API de las tarjetas de presentación digitales editables.
 Express + SQLite, desplegada en un VPS detrás de Nginx.
 
-En produccion vive en **https://backtarjetas.ecodama.online**
+En producción responde bajo **https://www.professionalprofiles.online/api**,
+detrás del mismo Nginx que sirve el sitio. No tiene dominio propio.
 
 Frontend: [profiles-frontend](https://github.com/DancingAlien96/profiles-frontend)
 
@@ -117,7 +118,10 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
 ### VPS
 
-En `deploy/` están la unidad de systemd y la configuración de Nginx.
+En `deploy/` está la unidad de systemd. **Nginx no se configura aquí:** la API
+no tiene dominio propio ni sitio de Nginx propio. Se llega a ella por `/api`
+del dominio del sitio, y ese bloque vive en el repo del frontend
+(`deploy/nginx.conf.example` de profiles-frontend).
 
 ```bash
 # en el VPS
@@ -131,12 +135,10 @@ sudo cp deploy/perfiles-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now perfiles-api
 sudo systemctl status perfiles-api
-
-sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/backtarjetas
-sudo ln -s /etc/nginx/sites-available/backtarjetas /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d backtarjetas.ecodama.online
 ```
+
+La API escucha solo en `127.0.0.1`, así que hasta que el Nginx del frontend
+esté levantado no responde desde fuera. Es lo esperado.
 
 ### Comprobar el despliegue
 
