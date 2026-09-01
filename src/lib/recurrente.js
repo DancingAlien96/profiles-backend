@@ -21,13 +21,22 @@ const BASE = process.env.RECURRENTE_API_URL || 'https://app.recurrente.com/api';
  */
 export const APP = 'perfiles';
 
+/**
+ * Solo la clave secreta es obligatoria: es la unica que pide la API, y ella
+ * sola decide tambien el ambiente. Una que empieza por sk_test_ cobra en el
+ * sandbox y no mueve dinero de verdad; sk_live_ si.
+ */
 function credenciales() {
-  const publica = process.env.RECURRENTE_PUBLIC_KEY;
   const secreta = process.env.RECURRENTE_SECRET_KEY;
-  if (!publica || !secreta) {
-    throw new Error('Faltan RECURRENTE_PUBLIC_KEY o RECURRENTE_SECRET_KEY');
+  if (!secreta) throw new Error('Falta RECURRENTE_SECRET_KEY');
+
+  const cabeceras = { 'X-SECRET-KEY': secreta };
+  // La cuenta es compartida con el otro sistema del negocio. Si algun dia las
+  // tarjetas cuelgan de una subcuenta, esto la selecciona sin tocar nada mas.
+  if (process.env.RECURRENTE_ACCOUNT_ID) {
+    cabeceras['X-ACCOUNT-ID'] = process.env.RECURRENTE_ACCOUNT_ID;
   }
-  return { 'X-PUBLIC-KEY': publica, 'X-SECRET-KEY': secreta };
+  return cabeceras;
 }
 
 async function pedir(ruta, { method = 'GET', body } = {}) {

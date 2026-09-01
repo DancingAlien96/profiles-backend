@@ -76,7 +76,6 @@ export function cargarConfig() {
   // guarda la tarjeta pero no puede abrir el cobro. Es un aviso y no un error
   // porque el resto del servicio (las tarjetas ya activas) sigue en pie.
   const pasarela = [
-    ['RECURRENTE_PUBLIC_KEY', 'no se podran crear cobros'],
     ['RECURRENTE_SECRET_KEY', 'no se podran crear cobros'],
     ['RECURRENTE_PRICE_ID', 'no se sabe cuanto cobrar'],
     ['RECURRENTE_WEBHOOK_SECRET', 'los pagos no activaran ninguna tarjeta'],

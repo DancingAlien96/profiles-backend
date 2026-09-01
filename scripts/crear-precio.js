@@ -26,13 +26,19 @@ if (!Number.isFinite(MONTO) || MONTO <= 0) {
   process.exit(1);
 }
 
-const { RECURRENTE_PUBLIC_KEY, RECURRENTE_SECRET_KEY } = process.env;
-if (!RECURRENTE_PUBLIC_KEY || !RECURRENTE_SECRET_KEY) {
+const { RECURRENTE_SECRET_KEY } = process.env;
+if (!RECURRENTE_SECRET_KEY) {
   console.error(
-    '\n  Faltan RECURRENTE_PUBLIC_KEY y RECURRENTE_SECRET_KEY en el .env.\n' +
-      '  Estan en el panel de Recurrente, en Configuracion > Llaves API.\n'
+    '\n  Falta RECURRENTE_SECRET_KEY en el .env.\n' +
+      '  Esta en el panel de Recurrente, en Configuracion > Llaves API.\n'
   );
   process.exit(1);
+}
+
+// La clave decide el ambiente, asi que conviene decir en voz alta en cual se
+// esta creando: un precio de sandbox no cobra dinero de verdad.
+if (RECURRENTE_SECRET_KEY.startsWith('sk_test_')) {
+  console.log('\n  [sandbox] la clave es de prueba: este precio no cobra dinero real.');
 }
 
 const BASE = process.env.RECURRENTE_API_URL || 'https://app.recurrente.com/api';
@@ -42,7 +48,6 @@ console.log(`\n  Creando "${NOMBRE}" a ${MONEDA} ${MONTO.toFixed(2)} al mes...\n
 const res = await fetch(`${BASE}/products`, {
   method: 'POST',
   headers: {
-    'X-PUBLIC-KEY': RECURRENTE_PUBLIC_KEY,
     'X-SECRET-KEY': RECURRENTE_SECRET_KEY,
     'Content-Type': 'application/json',
   },
