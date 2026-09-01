@@ -99,11 +99,37 @@ router.post('/recurrente', (req, res) => {
   res.status(200).json({ ok: true });
 });
 
+/**
+ * Reduce el nombre del evento a la accion que representa.
+ *
+ * La pasarela nombra el cobro segun como se pago: intent.succeeded con
+ * tarjeta, pero tambien balance_intent.paid, bank_transfer_intent.succeeded o
+ * automated_bank_transfer_intent.succeeded. Comparar contra una lista cerrada
+ * de nombres exactos falla en silencio de la peor forma: el cliente paga, el
+ * evento llega, y la tarjeta no se activa porque el nombre no estaba previsto.
+ *
+ * Se mira solo el final del nombre. Es seguro porque para llegar aqui el
+ * evento ya demostro ser de una tarjeta nuestra: sin esa marca no se procesa.
+ */
+function accionDe(tipo) {
+  const [familia, resultado] = String(tipo).split('.');
+
+  if (familia.endsWith('intent')) {
+    if (resultado === 'succeeded' || resultado === 'paid') return 'cobrado';
+    if (resultado === 'failed') return 'fallo_un_intento';
+    return null;
+  }
+
+  if (familia === 'subscription') return `suscripcion_${resultado}`;
+  return null;
+}
+
 /** Traduce el evento de la pasarela a un cambio de estado. */
-function aplicar(tipo, slug, evento) {
+function aplicar(tipoOriginal, slug, evento) {
+  const tipo = accionDe(tipoOriginal) || tipoOriginal;
+
   switch (tipo) {
-    case 'intent.succeeded':
-    case 'intent.paid': {
+    case 'cobrado': {
       Suscripcion.activar(slug, {
         suscripcionId: evento?.subscription?.id || evento?.subscription_id || null,
         clienteId: evento?.customer?.id || evento?.customer_id || null,
@@ -117,7 +143,7 @@ function aplicar(tipo, slug, evento) {
       break;
     }
 
-    case 'subscription.past_due': {
+    case 'suscripcion_past_due': {
       Suscripcion.marcarImpago(slug);
       console.log(
         `[webhook] ${slug}: cobro fallido, ${Suscripcion.diasDeGracia()} dias de gracia`
@@ -125,24 +151,24 @@ function aplicar(tipo, slug, evento) {
       break;
     }
 
-    case 'subscription.cancel': {
+    case 'suscripcion_cancel': {
       Suscripcion.cambiarEstado(slug, 'cancelada');
       console.log(`[webhook] ${slug}: suscripcion cancelada`);
       break;
     }
 
-    case 'subscription.pause': {
+    case 'suscripcion_pause': {
       Suscripcion.cambiarEstado(slug, 'suspendida');
       break;
     }
 
-    case 'subscription.reactivate':
-    case 'subscription.unpause': {
+    case 'suscripcion_reactivate':
+    case 'suscripcion_unpause': {
       Suscripcion.activar(slug);
       break;
     }
 
-    case 'intent.failed':
+    case 'fallo_un_intento':
       // No cambia el estado: quien lo mueve es subscription.past_due, que
       // llega cuando la pasarela da el cobro por perdido. Un fallo suelto
       // puede ser un reintento que despues sale bien.
@@ -150,7 +176,7 @@ function aplicar(tipo, slug, evento) {
       break;
 
     default:
-      console.log(`[webhook] ${slug}: ${tipo} sin accion asociada`);
+      console.log(`[webhook] ${slug}: ${tipoOriginal} sin accion asociada`);
   }
 }
 

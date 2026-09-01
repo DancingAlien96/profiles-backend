@@ -1125,6 +1125,28 @@ await prueba('el pago activa la suscripcion y publica la tarjeta', async () => {
   assert.equal(cuerpo.acceso, 'completo');
 });
 
+await prueba('el cobro activa la tarjeta se llame como se llame el evento', async () => {
+  // La pasarela nombra el cobro segun el medio de pago. Si solo se reconociera
+  // "intent.succeeded", un cliente que pague por transferencia o con saldo
+  // quedaria pagando sin tarjeta, y en silencio.
+  const variantes = [
+    'payment_intent.succeeded',
+    'bank_transfer_intent.succeeded',
+    'automated_bank_transfer_intent.succeeded',
+    'balance_intent.paid',
+  ];
+
+  for (const tipo of variantes) {
+    Suscripcion.crearPendiente('juanperez');
+    Suscripcion.cambiarEstado('juanperez', 'suspendida');
+    assert.equal(Suscripcion.acceso('juanperez'), 'suspendido');
+
+    const { estado } = await enviarWebhook({ ...pagoDe('juanperez'), event_type: tipo });
+    assert.equal(estado, 200);
+    assert.equal(Suscripcion.acceso('juanperez'), 'completo', `${tipo} deberia activar`);
+  }
+});
+
 await prueba('el mismo evento repetido no suma otro mes', async () => {
   const evento = pagoDe('juanperez');
   const cabeceras = firmar(JSON.stringify(evento));
