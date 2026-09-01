@@ -72,6 +72,20 @@ export function cargarConfig() {
     );
   }
 
+  // Sin la pasarela, el alta de clientes deja de funcionar: el formulario
+  // guarda la tarjeta pero no puede abrir el cobro. Es un aviso y no un error
+  // porque el resto del servicio (las tarjetas ya activas) sigue en pie.
+  const pasarela = [
+    ['RECURRENTE_PUBLIC_KEY', 'no se podran crear cobros'],
+    ['RECURRENTE_SECRET_KEY', 'no se podran crear cobros'],
+    ['RECURRENTE_PRICE_ID', 'no se sabe cuanto cobrar'],
+    ['RECURRENTE_WEBHOOK_SECRET', 'los pagos no activaran ninguna tarjeta'],
+  ].filter(([nombre]) => !process.env[nombre]);
+
+  for (const [nombre, consecuencia] of pasarela) {
+    avisos.push(`${nombre} sin configurar: ${consecuencia}.`);
+  }
+
   if (errores.length) {
     console.error('\n[api] la configuracion tiene errores:\n');
     for (const e of errores) console.error(`  - ${e}`);

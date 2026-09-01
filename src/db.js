@@ -57,6 +57,41 @@ CREATE TABLE IF NOT EXISTS invitations (
 );
 
 CREATE INDEX IF NOT EXISTS idx_invitations_used ON invitations(used_at);
+
+-- Suscripcion de cada tarjeta. Una por perfil.
+--
+-- periodo_fin es hasta cuando esta pagada; gracia_hasta, hasta cuando se
+-- sigue mostrando aunque el cobro haya fallado. El paso de gracia a suspendida
+-- se calcula al leer, comparando con la fecha: asi no hace falta una tarea
+-- programada que se puede quedar sin correr sin que nadie lo note.
+CREATE TABLE IF NOT EXISTS suscripciones (
+  slug            TEXT PRIMARY KEY REFERENCES profiles(slug) ON DELETE CASCADE,
+  estado          TEXT NOT NULL DEFAULT 'pendiente_pago',
+  checkout_id     TEXT,
+  suscripcion_id  TEXT,
+  cliente_id      TEXT,
+  periodo_fin     TEXT,
+  gracia_hasta    TEXT,
+  creada_en       TEXT NOT NULL,
+  actualizada_en  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_suscripciones_estado ON suscripciones(estado);
+CREATE INDEX IF NOT EXISTS idx_suscripciones_checkout ON suscripciones(checkout_id);
+
+-- Cada webhook recibido, por su id de Svix.
+--
+-- Sirve para dos cosas: no aplicar dos veces el mismo evento (Svix reintenta
+-- si no respondemos 2xx a tiempo) y poder reconstruir despues por que una
+-- tarjeta quedo activa o suspendida. Se guarda el cuerpo entero a proposito:
+-- es dinero, y sin el registro no hay forma de auditar una discrepancia.
+CREATE TABLE IF NOT EXISTS eventos_webhook (
+  id           TEXT PRIMARY KEY,
+  tipo         TEXT NOT NULL,
+  slug         TEXT,
+  cuerpo       TEXT NOT NULL,
+  recibido_en  TEXT NOT NULL
+);
 `;
 
 /**

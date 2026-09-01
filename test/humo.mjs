@@ -44,6 +44,36 @@ async function pedir(ruta, opciones = {}) {
 // Base en memoria: cada corrida arranca limpia y no toca ningun archivo.
 conectarDB(':memory:');
 
+/**
+ * Doble de la pasarela de pagos.
+ *
+ * El alta llama a Recurrente para abrir el cobro, y las pruebas no deben salir
+ * a internet ni cobrarle a nadie. Se levanta un servidor que responde como
+ * ella y que ademas guarda lo que recibio, para poder comprobar que cada
+ * cobro sale etiquetado con la tarjeta a la que pertenece.
+ */
+const { createServer } = await import('node:http');
+export const checkoutsPedidos = [];
+
+const pasarela = await new Promise((resolve) => {
+  const s = createServer((req, res) => {
+    let cuerpo = '';
+    req.on('data', (c) => (cuerpo += c));
+    req.on('end', () => {
+      checkoutsPedidos.push({ ruta: req.url, cuerpo: JSON.parse(cuerpo || '{}') });
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      const id = `ch_prueba_${checkoutsPedidos.length}`;
+      res.end(JSON.stringify({ id, checkout_url: `https://pasarela.example/${id}`, status: 'unpaid' }));
+    });
+  });
+  s.listen(0, '127.0.0.1', () => resolve(s));
+});
+
+process.env.RECURRENTE_API_URL = `http://127.0.0.1:${pasarela.address().port}`;
+process.env.RECURRENTE_PUBLIC_KEY = 'pk_de_prueba';
+process.env.RECURRENTE_SECRET_KEY = 'sk_de_prueba';
+process.env.RECURRENTE_PRICE_ID = 'price_de_prueba';
+
 // La app se levanta en este mismo proceso, en un puerto que asigna el sistema.
 const { createApp } = await import('../src/app.js');
 servidor = await new Promise((resolve) => {
@@ -979,9 +1009,205 @@ await prueba('se pueden quitar todos los servicios', async () => {
   assert.deepEqual(cuerpo.profile.services, []);
 });
 
+/* -------------------------------------------------------- suscripcion */
+
+// Es dinero y nadie del negocio lo supervisa: el webhook cambia estados solo.
+// Lo que se prueba aqui es que no se cuele lo que no debe y que un reintento
+// no cobre de mas.
+process.env.RECURRENTE_WEBHOOK_SECRET = 'whsec_' + Buffer.from('clave-de-prueba').toString('base64');
+process.env.DIAS_DE_GRACIA = '7';
+
+const Suscripcion = await import('../src/models/Suscripcion.js');
+const { firmaValida, slugDelEvento } = await import('../src/lib/recurrente.js');
+const cripto = await import('node:crypto');
+
+/** Firma un cuerpo igual que lo hace Svix, para poder llamar al webhook. */
+function firmar(cuerpo, { id = `msg_${Math.random().toString(36).slice(2)}`, desfase = 0 } = {}) {
+  const marca = Math.floor(Date.now() / 1000) + desfase;
+  const clave = Buffer.from(process.env.RECURRENTE_WEBHOOK_SECRET.replace(/^whsec_/, ''), 'base64');
+  const firma = cripto.createHmac('sha256', clave).update(`${id}.${marca}.${cuerpo}`).digest('base64');
+  return { 'svix-id': id, 'svix-timestamp': String(marca), 'svix-signature': `v1,${firma}` };
+}
+
+const enviarWebhook = (evento, opciones) => {
+  const cuerpo = JSON.stringify(evento);
+  return pedir('/api/webhooks/recurrente', {
+    method: 'POST',
+    headers: firmar(cuerpo, opciones),
+    body: cuerpo,
+  });
+};
+
+const pagoDe = (slug) => ({
+  event_type: 'intent.succeeded',
+  status: 'succeeded',
+  amount_in_cents: 699,
+  currency: 'USD',
+  metadata: { app: 'perfiles', slug },
+  subscription: { id: `sub_${slug}` },
+  customer: { id: `cus_${slug}` },
+});
+
+await prueba('una tarjeta anterior al cobro se sigue viendo entera', async () => {
+  // Los clientes que ya existian no tienen fila de suscripcion. Si esto se
+  // rompe, al desplegar se apagan de golpe los codigos QR ya impresos de
+  // gente que nunca dejo de pagar.
+  const { cuerpo } = await pedir('/api/profiles', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ slug: 'anterior', name: 'Cliente Antiguo', password: 'clave12345' }),
+  });
+  assert.equal(cuerpo.profile.slug, 'anterior');
+  assert.equal(Suscripcion.porSlug('anterior'), null, 'no deberia tener suscripcion');
+  assert.equal(Suscripcion.acceso('anterior'), 'completo');
+});
+
+await prueba('una membresia regalada no caduca ni la toca la pasarela', async () => {
+  Suscripcion.marcarCortesia('anterior');
+  assert.equal(Suscripcion.acceso('anterior'), 'completo');
+
+  // Un impago no debe poder tumbarla.
+  Suscripcion.marcarImpago('anterior');
+  assert.equal(Suscripcion.porSlug('anterior').estado, 'cortesia');
+  assert.equal(Suscripcion.acceso('anterior'), 'completo');
+});
+
+await prueba('la firma correcta se acepta', () => {
+  const cuerpo = JSON.stringify({ hola: 'mundo' });
+  assert.equal(firmaValida(Buffer.from(cuerpo), firmar(cuerpo)), true);
+});
+
+await prueba('una firma alterada se rechaza', () => {
+  const cuerpo = JSON.stringify({ hola: 'mundo' });
+  const cabeceras = firmar(cuerpo);
+  assert.equal(firmaValida(Buffer.from('{"hola":"otro"}'), cabeceras), false);
+});
+
+await prueba('un evento viejo se rechaza aunque venga bien firmado', () => {
+  const cuerpo = JSON.stringify({ hola: 'mundo' });
+  // Firmado hace una hora: alguien reenviando lo que intercepto.
+  assert.equal(firmaValida(Buffer.from(cuerpo), firmar(cuerpo, { desfase: -3600 })), false);
+});
+
+await prueba('sin firma no se atiende', async () => {
+  const { estado } = await pedir('/api/webhooks/recurrente', {
+    method: 'POST',
+    body: JSON.stringify(pagoDe('juanperez')),
+  });
+  assert.equal(estado, 400);
+});
+
+await prueba('un pago del otro sistema no toca ninguna tarjeta', async () => {
+  const ajeno = { event_type: 'intent.succeeded', metadata: { app: 'ecodama', salon: 'x' } };
+  const { estado, cuerpo } = await enviarWebhook(ajeno);
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.ignorado, 'no es de este sistema');
+});
+
+await prueba('un evento sin metadata ni ids conocidos se ignora', async () => {
+  const { cuerpo } = await enviarWebhook({ event_type: 'intent.succeeded', customer: { id: 'cus_ajeno' } });
+  assert.equal(cuerpo.ignorado, 'no es de este sistema');
+});
+
+await prueba('el id de cliente por si solo no identifica una tarjeta', () => {
+  // Una misma persona puede ser cliente de los dos sistemas del negocio.
+  assert.equal(slugDelEvento({ customer: { id: 'cus_juanperez' } }), null);
+});
+
+await prueba('el pago activa la suscripcion y publica la tarjeta', async () => {
+  Suscripcion.crearPendiente('juanperez');
+  const { estado } = await enviarWebhook(pagoDe('juanperez'));
+  assert.equal(estado, 200);
+  assert.equal(Suscripcion.acceso('juanperez'), 'completo');
+
+  const { cuerpo } = await pedir('/api/profiles/juanperez');
+  assert.equal(cuerpo.published, true);
+  assert.equal(cuerpo.acceso, 'completo');
+});
+
+await prueba('el mismo evento repetido no suma otro mes', async () => {
+  const evento = pagoDe('juanperez');
+  const cabeceras = firmar(JSON.stringify(evento));
+
+  const primero = await pedir('/api/webhooks/recurrente', {
+    method: 'POST', headers: cabeceras, body: JSON.stringify(evento),
+  });
+  const hasta = Suscripcion.porSlug('juanperez').periodo_fin;
+
+  const segundo = await pedir('/api/webhooks/recurrente', {
+    method: 'POST', headers: cabeceras, body: JSON.stringify(evento),
+  });
+
+  assert.equal(primero.estado, 200);
+  assert.equal(segundo.cuerpo.repetido, true);
+  assert.equal(Suscripcion.porSlug('juanperez').periodo_fin, hasta);
+});
+
+await prueba('un cobro fallido no tumba la tarjeta: entra en gracia', async () => {
+  await enviarWebhook({
+    event_type: 'subscription.past_due',
+    metadata: { app: 'perfiles', slug: 'juanperez' },
+  });
+  assert.equal(Suscripcion.porSlug('juanperez').estado, 'en_gracia');
+  // Lo importante: el QR impreso sigue llevando a la tarjeta entera.
+  assert.equal(Suscripcion.acceso('juanperez'), 'completo');
+});
+
+await prueba('al vencer la gracia la tarjeta queda suspendida sola', async () => {
+  const { obtenerDB } = await import('../src/db.js');
+  const ayer = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  obtenerDB().prepare('UPDATE suscripciones SET gracia_hasta = ? WHERE slug = ?').run(ayer, 'juanperez');
+
+  // Sin tarea programada de por medio: se resuelve al leer.
+  assert.equal(Suscripcion.estadoEfectivo(Suscripcion.porSlug('juanperez')), 'suspendida');
+  assert.equal(Suscripcion.acceso('juanperez'), 'suspendido');
+});
+
+await prueba('una tarjeta suspendida no devuelve 404, sigue existiendo', async () => {
+  const { estado, cuerpo } = await pedir('/api/profiles/juanperez');
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.acceso, 'suspendido');
+  // El nombre sigue estando: la pagina de suspendida lo necesita para que
+  // quien escanee el QR impreso vea de quien es la tarjeta, no un error.
+  assert.ok(cuerpo.name, 'el nombre deberia seguir disponible');
+});
+
+await prueba('el estado de la suscripcion no se filtra al visitante', async () => {
+  const { cuerpo } = await pedir('/api/profiles/juanperez');
+  assert.equal(cuerpo.estado, undefined);
+  assert.equal(cuerpo.periodoFin, undefined);
+  assert.equal(cuerpo.graciaHasta, undefined);
+});
+
+await prueba('pagar tras la suspension reactiva la tarjeta', async () => {
+  await enviarWebhook(pagoDe('juanperez'));
+  assert.equal(Suscripcion.acceso('juanperez'), 'completo');
+});
+
+await prueba('al renovar no se pierden los dias que quedaban', () => {
+  const antes = Suscripcion.porSlug('juanperez').periodo_fin;
+  Suscripcion.activar('juanperez');
+  const despues = Suscripcion.porSlug('juanperez').periodo_fin;
+  // Se cuenta desde el fin del periodo, no desde hoy.
+  assert.ok(new Date(despues) > new Date(antes), 'el periodo deberia extenderse');
+});
+
+await prueba('cada cobro sale etiquetado con su tarjeta', () => {
+  // Es lo que ata el pago a la tarjeta cuando vuelve el webhook, y lo que
+  // distingue estos cobros de los del otro sistema del negocio.
+  assert.ok(checkoutsPedidos.length > 0, 'deberia haberse pedido algun cobro');
+  for (const { ruta, cuerpo } of checkoutsPedidos) {
+    assert.equal(ruta, '/checkouts');
+    assert.equal(cuerpo.metadata.app, 'perfiles');
+    assert.ok(cuerpo.metadata.slug, 'el cobro deberia llevar el slug');
+    assert.equal(cuerpo.items[0].price_id, 'price_de_prueba');
+  }
+});
+
 /* ----------------------------------------------------------- cierre */
 
 servidor.close();
+pasarela.close();
 cerrarDB();
 
 console.log(fallos.length ? `\n${fallos.length} prueba(s) fallaron.\n` : '\nTodas las pruebas pasaron.\n');

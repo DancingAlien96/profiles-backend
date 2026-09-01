@@ -303,9 +303,14 @@ export function obtenerFoto(slug) {
  * nombre y el telefono, asi que es adivinable) y en false cuando el cliente
  * la eligio el mismo al darse de alta.
  */
+/**
+ * `published` llega en 0 desde el alta con pago: la tarjeta existe para
+ * apartar la direccion, pero no se ve hasta que la pasarela confirme el cobro.
+ * El alta desde el panel del dueño la crea publicada, como siempre.
+ */
 export function crear({
   slug, name, role, tagline, footer, theme, links, hours, services, passwordHash,
-  mustChangePassword = true,
+  mustChangePassword = true, published = true,
 }) {
   const datos = {
     slug: String(slug).toLowerCase(),
@@ -332,7 +337,7 @@ export function crear({
         (slug, name, role, tagline, footer, theme, links, hours, services, password_hash,
          must_change_password, published, created_at, updated_at)
        VALUES (@slug, @name, @role, @tagline, @footer, @theme, @links, @hours, @services,
-         @passwordHash, @mustChange, 1, @t, @t)`
+         @passwordHash, @mustChange, @published, @t, @t)`
     )
     .run({
       ...datos,
@@ -341,6 +346,7 @@ export function crear({
       services: JSON.stringify(listaServicios.services),
       passwordHash,
       mustChange: mustChangePassword ? 1 : 0,
+      published: published ? 1 : 0,
       t,
     });
 

@@ -3,6 +3,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth.js';
 import profileRoutes from './routes/profiles.js';
 import invitationRoutes from './routes/invitations.js';
+import webhookRoutes from './routes/webhooks.js';
 
 /** Construye la aplicacion. Separada del arranque para poder probarla. */
 export function createApp() {
@@ -24,6 +25,12 @@ export function createApp() {
       },
     })
   );
+
+  // Los webhooks van ANTES del parser de JSON y con el cuerpo sin tocar: la
+  // firma se calcula sobre los bytes exactos que mando la pasarela. Si se
+  // firmara el JSON vuelto a serializar, bastaria con que ordenara las claves
+  // distinto para que ninguna firma cuadrara nunca.
+  app.use('/api/webhooks', express.raw({ type: '*/*', limit: '1mb' }), webhookRoutes);
 
   // El limite cubre la foto en base64 (200 KB crecen ~33% al codificar).
   app.use(express.json({ limit: '400kb' }));

@@ -12,8 +12,10 @@
     "test": "node test/humo.mjs",
     "borrar-perfil": "node scripts/borrar-perfil.js",
     "verificar": "node scripts/verificar.js",
+    "crear-precio": "node scripts/crear-precio.js",
     "respaldar": "node scripts/respaldar.js",
-    "invitar": "node scripts/invitar.js"
+    "invitar": "node scripts/invitar.js",
+    "cortesia": "node scripts/cortesia.js"
   },
   "engines": {
     "node": ">=22"

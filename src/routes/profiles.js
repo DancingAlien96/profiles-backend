@@ -4,6 +4,8 @@ import rateLimit from 'express-rate-limit';
 import * as Perfil from '../models/Profile.js';
 import * as Invitacion from '../models/Invitation.js';
 import { requireAuth, requireOwner, requireAdmin } from '../middleware/auth.js';
+import * as Suscripcion from '../models/Suscripcion.js';
+import { crearCheckout } from '../lib/recurrente.js';
 import { obtenerDB } from '../db.js';
 
 const router = Router();
@@ -16,6 +18,13 @@ const MAX_FOTO_BYTES = 200 * 1024;
 
 // Van antes de "/:slug" a proposito: en Express gana la primera que coincida,
 // y "registro" es un slug sintacticamente valido.
+
+/**
+ * Dominio del sitio, para las direcciones de vuelta de la pasarela.
+ * Sin barra final: se le concatenan rutas.
+ */
+const sitio = () =>
+  (process.env.SITE_URL || 'https://www.professionalprofiles.online').replace(/\/$/, '');
 
 /** Tope diario de guardados: un freno ante un abuso o un fallo en bucle. */
 function errorDeCupo(cupo) {
@@ -90,13 +99,42 @@ router.post('/registro', registroLimiter, async (req, res, next) => {
         slug: slugLimpio, name, role, tagline, footer, theme, links, hours, services, passwordHash,
         // El cliente eligio su propia clave: no hay nada que pedirle cambiar.
         mustChangePassword: false,
+        // Se publica cuando entre el pago, no antes.
+        published: false,
       });
       Invitacion.marcarUsada(token, slugLimpio);
       return perfil;
     });
 
     const perfil = alta();
-    res.status(201).json({ profile: Perfil.aPublico(perfil) });
+
+    // La tarjeta ya existe, pero no se ve: se publica sola cuando la pasarela
+    // confirme el primer cobro. Se crea antes de cobrar a proposito, para
+    // apartar la direccion: si se creara despues, dos altas simultaneas con el
+    // mismo nombre podrian pagar las dos por la misma direccion.
+    Suscripcion.crearPendiente(slugLimpio);
+
+    let pago;
+    try {
+      pago = await crearCheckout({
+        slug: slugLimpio,
+        exitoUrl: `${sitio()}/pago/listo?t=${slugLimpio}`,
+        cancelUrl: `${sitio()}/pago/cancelado?t=${slugLimpio}`,
+      });
+      Suscripcion.crearPendiente(slugLimpio, { checkoutId: pago.id });
+    } catch (err) {
+      // El perfil queda creado y sin publicar. Se le puede volver a generar el
+      // cobro desde el panel, sin que el cliente rellene el formulario otra
+      // vez ni pierda su direccion.
+      console.error(`[registro] no se pudo crear el cobro de ${slugLimpio}:`, err.message);
+      return res.status(502).json({
+        error:
+          'Tu tarjeta quedo guardada, pero no se pudo abrir el pago. Escribenos y la activamos.',
+        profile: Perfil.aPublico(perfil),
+      });
+    }
+
+    res.status(201).json({ profile: Perfil.aPublico(perfil), urlPago: pago.url });
   } catch (err) {
     if (err.name === 'TypeError' || err instanceof RangeError) return next(err);
     res.status(400).json({ error: err.message });
@@ -113,7 +151,11 @@ router.get('/', (_req, res) => {
 router.get('/:slug', (req, res) => {
   const perfil = Perfil.porSlug(req.params.slug);
   if (!perfil) return res.status(404).json({ error: 'Perfil no encontrado' });
-  res.json(Perfil.aPublico(perfil));
+
+  // `acceso` solo dice si la tarjeta se muestra entera o no. El estado real de
+  // la suscripcion no sale de aqui: quien abre la tarjeta es un prospecto del
+  // cliente, y no tiene por que enterarse de que su cobro fallo.
+  res.json({ ...Perfil.aPublico(perfil), acceso: Suscripcion.acceso(req.params.slug) });
 });
 
 /** Cambios que le quedan hoy al dueño. Lo consulta su propio panel. */
