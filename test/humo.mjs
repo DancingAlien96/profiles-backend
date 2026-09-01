@@ -69,6 +69,49 @@ const pasarela = await new Promise((resolve) => {
   s.listen(0, '127.0.0.1', () => resolve(s));
 });
 
+/**
+ * Doble de Resend. Guarda los avisos en vez de mandarlos, y sabe fallar a
+ * propósito para comprobar que un correo caido no arrastra al cobro.
+ */
+export const correosEnviados = [];
+export let fallarCorreo = false;
+
+const correos = await new Promise((resolve) => {
+  const s = createServer((req, res) => {
+    let cuerpo = '';
+    req.on('data', (c) => (cuerpo += c));
+    req.on('end', () => {
+      if (fallarCorreo) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ message: 'fallo simulado' }));
+      }
+      correosEnviados.push(JSON.parse(cuerpo || '{}'));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: `email_${correosEnviados.length}` }));
+    });
+  });
+  s.listen(0, '127.0.0.1', () => resolve(s));
+});
+
+/**
+ * Espera a que lleguen los avisos.
+ *
+ * El webhook no aguarda al correo a proposito —un Resend caido no puede
+ * costarle la tarjeta a quien ya pago— asi que el aviso llega despues de que
+ * la peticion haya respondido. La prueba es la que tiene que esperar.
+ */
+async function esperarCorreos(cuantos, ms = 2000) {
+  const limite = Date.now() + ms;
+  while (correosEnviados.length < cuantos && Date.now() < limite) {
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return correosEnviados.length;
+}
+
+process.env.RESEND_API_URL = `http://127.0.0.1:${correos.address().port}`;
+process.env.RESEND_API_KEY = 're_de_prueba';
+process.env.EMAIL_AVISOS = 'avisos@ejemplo.test';
+
 process.env.RECURRENTE_API_URL = `http://127.0.0.1:${pasarela.address().port}`;
 process.env.RECURRENTE_PUBLIC_KEY = 'pk_de_prueba';
 process.env.RECURRENTE_SECRET_KEY = 'sk_de_prueba';
@@ -1209,6 +1252,74 @@ await prueba('el pago activa la suscripcion y publica la tarjeta', async () => {
   const { cuerpo } = await pedir('/api/profiles/juanperez');
   assert.equal(cuerpo.published, true);
   assert.equal(cuerpo.acceso, 'completo');
+});
+
+await prueba('el primer pago avisa por correo; la renovacion no', async () => {
+  correosEnviados.length = 0;
+  await pedir('/api/profiles', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ slug: 'avisos-uno', name: 'Cliente Nuevo', password: 'clave12345' }),
+  });
+  Suscripcion.crearPendiente('avisos-uno');
+
+  await enviarWebhook(pagoDe('avisos-uno'));
+  assert.equal(await esperarCorreos(1), 1, 'el primer pago deberia avisar');
+  assert.match(correosEnviados[0].subject, /Nueva tarjeta pagada/);
+
+  // La renovacion del mes siguiente no debe volver a avisar.
+  await enviarWebhook(pagoDe('avisos-uno'), { id: 'msg_renovacion' });
+  await esperarCorreos(2, 400);
+  assert.equal(correosEnviados.length, 1, 'la renovacion no deberia avisar');
+});
+
+await prueba('el aviso lleva los contactos del cliente para escribirle', async () => {
+  correosEnviados.length = 0;
+  await pedir('/api/profiles', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({
+      slug: 'avisos-dos',
+      name: 'Con Contacto',
+      password: 'clave12345',
+      links: [{ type: 'whatsapp', label: 'WhatsApp', url: '47694804' }],
+    }),
+  });
+  Suscripcion.crearPendiente('avisos-dos');
+  await enviarWebhook(pagoDe('avisos-dos'), { id: 'msg_contactos' });
+  await esperarCorreos(1);
+
+  // Es la razon de ser del aviso: poder escribirle sin buscar nada.
+  assert.match(correosEnviados[0].html, /wa\.me\/50247694804/);
+});
+
+await prueba('un cobro fallido avisa con la fecha limite', async () => {
+  correosEnviados.length = 0;
+  await enviarWebhook({
+    event_type: 'subscription.past_due',
+    metadata: { app: 'perfiles', slug: 'avisos-uno' },
+  }, { id: 'msg_impago' });
+
+  assert.equal(await esperarCorreos(1), 1);
+  assert.match(correosEnviados[0].subject, /Cobro fallido/);
+  assert.match(correosEnviados[0].html, /sigue viéndose completa/);
+});
+
+await prueba('si el correo falla, el cobro se aplica igual', async () => {
+  // Un correo que no sale no puede costarle la tarjeta a quien ya pago.
+  fallarCorreo = true;
+  await pedir('/api/profiles', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ slug: 'correo-roto', name: 'Pago Igual', password: 'clave12345' }),
+  });
+  Suscripcion.crearPendiente('correo-roto');
+
+  const { estado } = await enviarWebhook(pagoDe('correo-roto'), { id: 'msg_correo_roto' });
+  fallarCorreo = false;
+
+  assert.equal(estado, 200, 'el webhook no debe fallar porque falle el correo');
+  assert.equal(Suscripcion.acceso('correo-roto'), 'completo');
 });
 
 await prueba('el cobro activa la tarjeta se llame como se llame el evento', async () => {

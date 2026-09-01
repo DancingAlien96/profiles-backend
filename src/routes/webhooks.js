@@ -15,6 +15,8 @@
 import { Router } from 'express';
 import * as Suscripcion from '../models/Suscripcion.js';
 import { firmaValida, slugDelEvento } from '../lib/recurrente.js';
+import * as Perfil from '../models/Profile.js';
+import * as correo from '../lib/correo.js';
 import { obtenerDB } from '../db.js';
 
 const router = Router();
@@ -124,12 +126,35 @@ function accionDe(tipo) {
   return null;
 }
 
+/**
+ * Lanza un aviso por correo sin que pueda afectar al webhook.
+ *
+ * El estado de la suscripcion ya esta guardado cuando esto corre. Si el aviso
+ * fallara hacia arriba, contestariamos 500, la pasarela reintentaria el evento
+ * y una tarjeta ya pagada podria quedar en el limbo por no haberse podido
+ * mandar un correo. El aviso es util; el cobro es el que no se puede perder.
+ */
+function avisar(fn) {
+  try {
+    Promise.resolve(fn()).catch((err) => console.error('[correo] aviso fallido:', err.message));
+  } catch (err) {
+    console.error('[correo] aviso fallido:', err.message);
+  }
+}
+
 /** Traduce el evento de la pasarela a un cambio de estado. */
 function aplicar(tipoOriginal, slug, evento) {
   const tipo = accionDe(tipoOriginal) || tipoOriginal;
 
   switch (tipo) {
     case 'cobrado': {
+      // Se mira ANTES de activar: una suscripcion que nunca tuvo periodo es un
+      // cliente nuevo, y las siguientes veces son renovaciones mensuales. Sin
+      // esta distincion, con veinte clientes llegarian veinte correos al mes
+      // sin nada que hacer en ninguno.
+      const anterior = Suscripcion.porSlug(slug);
+      const esPrimerPago = !anterior?.periodo_fin;
+
       Suscripcion.activar(slug, {
         suscripcionId: evento?.subscription?.id || evento?.subscription_id || null,
         clienteId: evento?.customer?.id || evento?.customer_id || null,
@@ -139,14 +164,25 @@ function aplicar(tipoOriginal, slug, evento) {
       obtenerDB()
         .prepare('UPDATE profiles SET published = 1 WHERE slug = ?')
         .run(slug);
-      console.log(`[webhook] ${slug}: pago recibido, suscripcion activa`);
+
+      console.log(
+        `[webhook] ${slug}: ${esPrimerPago ? 'primer pago' : 'renovacion'}, suscripcion activa`
+      );
+
+      if (esPrimerPago) avisar(() => correo.avisarVenta(Perfil.aPublico(Perfil.porSlug(slug))));
       break;
     }
 
     case 'suscripcion_past_due': {
-      Suscripcion.marcarImpago(slug);
+      const sub = Suscripcion.marcarImpago(slug);
       console.log(
         `[webhook] ${slug}: cobro fallido, ${Suscripcion.diasDeGracia()} dias de gracia`
+      );
+      avisar(() =>
+        correo.avisarImpago(Perfil.aPublico(Perfil.porSlug(slug)), {
+          graciaHasta: sub?.gracia_hasta,
+          dias: Suscripcion.diasDeGracia(),
+        })
       );
       break;
     }
@@ -154,6 +190,7 @@ function aplicar(tipoOriginal, slug, evento) {
     case 'suscripcion_cancel': {
       Suscripcion.cambiarEstado(slug, 'cancelada');
       console.log(`[webhook] ${slug}: suscripcion cancelada`);
+      avisar(() => correo.avisarBaja(Perfil.aPublico(Perfil.porSlug(slug))));
       break;
     }
 

@@ -59,6 +59,10 @@ export function createApp() {
           firmaWebhook: process.env.RECURRENTE_WEBHOOK_SECRET ? 'configurada' : 'FALTA',
           diasDeGracia: Number(process.env.DIAS_DE_GRACIA) || 7,
         },
+        avisos:
+          process.env.RESEND_API_KEY && process.env.EMAIL_AVISOS
+            ? `a ${process.env.EMAIL_AVISOS}`
+            : 'apagados',
         corsOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean).length || 'ninguno (se acepta cualquiera)',
       };
     }

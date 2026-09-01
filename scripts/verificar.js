@@ -186,6 +186,16 @@ if (!salud.res) {
     }
 
     ok('dias de gracia tras un cobro fallido', `${p.diasDeGracia} dias`);
+
+    if (d.avisos === 'apagados') {
+      aviso(
+        'los avisos por correo estan apagados',
+        'No te enteraras de una venta ni de un cobro fallido salvo que mires el ' +
+          'panel. Configura RESEND_API_KEY y EMAIL_AVISOS.'
+      );
+    } else {
+      ok('avisos por correo', d.avisos);
+    }
   }
 }
 
