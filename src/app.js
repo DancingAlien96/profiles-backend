@@ -46,6 +46,19 @@ export function createApp() {
         ipVista: req.ip,
         forwardedFor: req.get('x-forwarded-for') || null,
         protocolo: req.protocol,
+        // Sin esto, una pasarela a medio configurar es un fallo mudo: el
+        // servicio arranca, las tarjetas ya activas funcionan, y solo se
+        // descubre cuando un cliente intenta darse de alta y no puede pagar.
+        pasarela: {
+          llaveSecreta: process.env.RECURRENTE_SECRET_KEY
+            ? process.env.RECURRENTE_SECRET_KEY.startsWith('sk_test_')
+              ? 'sandbox'
+              : 'produccion'
+            : 'FALTA',
+          precio: process.env.RECURRENTE_PRICE_ID ? 'configurado' : 'FALTA',
+          firmaWebhook: process.env.RECURRENTE_WEBHOOK_SECRET ? 'configurada' : 'FALTA',
+          diasDeGracia: Number(process.env.DIAS_DE_GRACIA) || 7,
+        },
         corsOrigins: (process.env.CORS_ORIGINS || '').split(',').filter(Boolean).length || 'ninguno (se acepta cualquiera)',
       };
     }

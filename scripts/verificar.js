@@ -145,6 +145,48 @@ if (!salud.res) {
   } else {
     ok('Nginx pasa la IP real del visitante', d.ipVista);
   }
+
+  /* ------------------------------------------------------- la pasarela */
+
+  if (d?.pasarela) {
+    console.log('\nCobro de suscripciones');
+    const p = d.pasarela;
+
+    if (p.llaveSecreta === 'FALTA') {
+      mal(
+        'falta RECURRENTE_SECRET_KEY',
+        'Los clientes nuevos no pueden pagar: el alta guarda la tarjeta pero no ' +
+          'abre el cobro. Las tarjetas ya activas siguen funcionando.'
+      );
+    } else if (p.llaveSecreta === 'sandbox') {
+      aviso(
+        'la llave de la pasarela es de PRUEBAS (sk_test_)',
+        'Se puede pagar con 4242 4242 4242 4242 y no se cobra dinero real. ' +
+          'Para cobrar de verdad, cambia a sk_live_ y vuelve a correr crear-precio.'
+      );
+    } else {
+      ok('la pasarela cobra de verdad', 'sk_live_');
+    }
+
+    if (p.precio === 'FALTA') {
+      mal('falta RECURRENTE_PRICE_ID', 'Sacalo con: npm run crear-precio');
+    } else {
+      ok('el precio de la suscripcion esta configurado');
+    }
+
+    if (p.firmaWebhook === 'FALTA') {
+      mal(
+        'falta RECURRENTE_WEBHOOK_SECRET',
+        'Los pagos entran pero NINGUNA tarjeta se activa: sin la clave no se ' +
+          'puede verificar la firma y el webhook rechaza todo. Copiala del ' +
+          'endpoint de este sistema en el panel de Svix.'
+      );
+    } else {
+      ok('la firma de los webhooks se puede verificar');
+    }
+
+    ok('dias de gracia tras un cobro fallido', `${p.diasDeGracia} dias`);
+  }
 }
 
 /* --------------------------------------------- el puerto directo, expuesto */
