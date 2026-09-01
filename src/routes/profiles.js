@@ -46,12 +46,37 @@ const registroLimiter = rateLimit({
   message: { error: 'Demasiados intentos. Espera un rato e intenta de nuevo.' },
 });
 
+/**
+ * El alta publica, sin invitacion, no tiene ninguna puerta antes: cualquiera
+ * que abra la portada llega aqui. El limite es mas estrecho porque cada alta
+ * aparta una direccion, y las direcciones no se reciclan solas hasta pasada
+ * una hora.
+ */
+const registroPublicoLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Ya empezaste varias tarjetas desde aqui. Termina el pago de una o espera un rato.',
+  },
+});
+
+/** El limite estrecho solo se aplica al alta sin invitacion. */
+const limitarSiEsPublico = (req, res, next) =>
+  req.body?.token ? next() : registroPublicoLimiter(req, res, next);
+
 /** Lista para el panel de administracion: incluye los despublicados. */
 router.get('/todos', requireAdmin, (_req, res) => {
   res.json(Perfil.listarTodos().map(Perfil.aPublico));
 });
 
 router.get('/disponible/:slug', (req, res) => {
+  // Se sueltan primero las direcciones apartadas y nunca pagadas: si no,
+  // decirle a alguien que "clinica" esta ocupada por un alta que murio a
+  // medias hace semanas seria mentirle.
+  Suscripcion.liberarAbandonadas();
+
   const slug = String(req.params.slug || '').toLowerCase();
 
   const apartado = (s) => Boolean(Invitacion.slugApartado(s));
@@ -71,11 +96,25 @@ router.get('/disponible/:slug', (req, res) => {
   });
 });
 
-/** Alta desde el enlace de invitacion. La invitacion se gasta al usarse. */
-router.post('/registro', registroLimiter, async (req, res, next) => {
+/**
+ * Alta del cliente. Dos caminos por la misma puerta:
+ *
+ *  - Con invitacion: la que le mandas tu. Puede traer la direccion fijada,
+ *    para cuando el codigo QR o la tarjeta NFC ya estan impresos.
+ *  - Sin invitacion: cualquiera desde la portada. El pago es la unica puerta.
+ *
+ * Se conservan las dos porque la invitacion sigue haciendo algo que el alta
+ * publica no puede: decidir la direccion antes de que el cliente escriba nada.
+ */
+router.post('/registro', registroLimiter, limitarSiEsPublico, async (req, res, next) => {
   const { token, slug, name, role, tagline, footer, theme, links, hours, services, password } = req.body || {};
 
-  const revision = Invitacion.revisar(token);
+  // Antes de decidir nada sobre direcciones, se sueltan las que alguien
+  // aparto y nunca pago. Si no, un nombre queda bloqueado por una alta a
+  // medias que nunca va a completarse.
+  Suscripcion.liberarAbandonadas();
+
+  const revision = token ? Invitacion.revisar(token) : { ok: true, invitacion: {} };
   if (!revision.ok) return res.status(410).json({ error: revision.motivo });
 
   if (!password || String(password).length < 8) {
@@ -86,7 +125,20 @@ router.post('/registro', registroLimiter, async (req, res, next) => {
   // el cliente: la tarjeta NFC y el QR ya estan impresos con ella.
   const slugLimpio = revision.invitacion.slug || String(slug || '').toLowerCase();
 
-  const motivo = Perfil.motivoSlugNoDisponible(slugLimpio);
+  // Ademas de las direcciones ya usadas, se respetan las que estan apartadas
+  // por una invitacion sin gastar. Esas son las de los codigos QR y tarjetas
+  // NFC ya impresos: si alguien se lleva una, la tarjeta de plastico del
+  // cliente apunta a la pagina de otra persona y no hay forma de arreglarlo.
+  //
+  // La comprobacion vive aqui y no solo en /disponible porque esa ruta es una
+  // ayuda del formulario, no una defensa: se puede llamar a esta directamente.
+  const apartada = Invitacion.slugApartado(slugLimpio);
+  const laApartoOtro = apartada && apartada.token !== token;
+
+  const motivo =
+    Perfil.motivoSlugNoDisponible(slugLimpio) ||
+    (laApartoOtro ? 'Esa direccion ya esta apartada para otro cliente.' : null);
+
   if (motivo) return res.status(409).json({ error: `${motivo} Elige otra.` });
 
   try {
@@ -102,7 +154,8 @@ router.post('/registro', registroLimiter, async (req, res, next) => {
         // Se publica cuando entre el pago, no antes.
         published: false,
       });
-      Invitacion.marcarUsada(token, slugLimpio);
+      // Solo hay invitacion que gastar en el camino que la usa.
+      if (token) Invitacion.marcarUsada(token, slugLimpio);
       return perfil;
     });
 

@@ -312,10 +312,18 @@ await prueba('acepta una direccion libre', async () => {
   assert.equal(cuerpo.disponible, true);
 });
 
-await prueba('no se puede crear un perfil sin invitacion', async () => {
+await prueba('una invitacion invalida se rechaza aunque exista el alta publica', async () => {
+  // Abrir el alta al publico no debe convertir un token quemado o inventado en
+  // algo que se acepte en silencio: si el enlace dice algo, tiene que ser
+  // cierto.
   const { estado } = await pedir('/api/profiles/registro', {
     method: 'POST',
-    body: JSON.stringify({ slug: 'colado', name: 'Colado', password: 'ClaveLarga1' }),
+    body: JSON.stringify({
+      token: 'token-que-no-existe',
+      slug: 'colado',
+      name: 'Colado',
+      password: 'ClaveLarga1',
+    }),
   });
   assert.equal(estado, 410);
 });
@@ -1018,6 +1026,7 @@ process.env.RECURRENTE_WEBHOOK_SECRET = 'whsec_' + Buffer.from('clave-de-prueba'
 process.env.DIAS_DE_GRACIA = '7';
 
 const Suscripcion = await import('../src/models/Suscripcion.js');
+const { porSlug: Perfil_porSlug } = await import('../src/models/Profile.js');
 const { firmaValida, slugDelEvento } = await import('../src/lib/recurrente.js');
 const cripto = await import('node:crypto');
 
@@ -1046,6 +1055,83 @@ const pagoDe = (slug) => ({
   metadata: { app: 'perfiles', slug },
   subscription: { id: `sub_${slug}` },
   customer: { id: `cus_${slug}` },
+});
+
+/* ------------------------------------------------ alta publica sin invitacion */
+
+await prueba('se puede crear una tarjeta sin invitacion, desde la portada', async () => {
+  const { estado, cuerpo } = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'publica-uno', name: 'Sin Invitacion', password: 'clave12345' }),
+  });
+  assert.equal(estado, 201);
+  assert.ok(cuerpo.urlPago, 'deberia mandar a pagar');
+  // Igual que con invitacion: existe, aparta la direccion, pero no se ve.
+  assert.equal(cuerpo.profile.published, false);
+});
+
+await prueba('el alta publica tambien aparta la direccion mientras paga', async () => {
+  const { estado } = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'publica-uno', name: 'Otro Cualquiera', password: 'clave12345' }),
+  });
+  assert.equal(estado, 409, 'no deberia poder robar una direccion en proceso de pago');
+});
+
+await prueba('una direccion apartada y nunca pagada se libera sola', async () => {
+  const { obtenerDB } = await import('../src/db.js');
+  // Se envejece el alta mas alla del plazo para pagar.
+  const viejo = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+  obtenerDB().prepare('UPDATE suscripciones SET creada_en = ? WHERE slug = ?').run(viejo, 'publica-uno');
+
+  const { cuerpo } = await pedir('/api/profiles/disponible/publica-uno');
+  assert.equal(cuerpo.disponible, true, 'la direccion deberia haberse liberado');
+  assert.ok(!Perfil_porSlug('publica-uno'), 'el perfil abandonado deberia borrarse');
+});
+
+await prueba('el alta publica NO puede llevarse la direccion de un NFC impreso', async () => {
+  // El caso que mas duele: el plastico ya esta impreso con esa direccion.
+  const { cuerpo } = await pedir('/api/invitations', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ nota: 'NFC impreso', slug: 'dra-morales' }),
+  });
+  assert.equal(cuerpo.invitacion.slug, 'dra-morales');
+
+  // Alguien de la calle intenta registrarse con esa misma direccion.
+  const intento = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'dra-morales', name: 'Impostor', password: 'clave12345' }),
+  });
+  assert.equal(intento.estado, 409);
+
+  // Y la dueña legitima, con su invitacion, si puede usarla.
+  const legitima = await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({
+      token: cuerpo.invitacion.token,
+      name: 'Dra Morales',
+      password: 'clave12345',
+    }),
+  });
+  assert.equal(legitima.estado, 201);
+  assert.equal(legitima.cuerpo.profile.slug, 'dra-morales');
+});
+
+await prueba('una tarjeta ya pagada NUNCA se borra por abandono', async () => {
+  await pedir('/api/profiles/registro', {
+    method: 'POST',
+    body: JSON.stringify({ slug: 'si-pago', name: 'Si Pago', password: 'clave12345' }),
+  });
+  const { obtenerDB } = await import('../src/db.js');
+  Suscripcion.activar('si-pago');
+
+  // Aunque el alta sea antiquisima, ya pago: no se toca.
+  const viejo = new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+  obtenerDB().prepare('UPDATE suscripciones SET creada_en = ? WHERE slug = ?').run(viejo, 'si-pago');
+
+  Suscripcion.liberarAbandonadas();
+  assert.ok(Perfil_porSlug('si-pago'), 'una tarjeta pagada no puede desaparecer');
 });
 
 await prueba('una tarjeta anterior al cobro se sigue viendo entera', async () => {

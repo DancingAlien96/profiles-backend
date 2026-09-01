@@ -187,6 +187,62 @@ export function registrarEvento({ id, tipo, slug, cuerpo }) {
   }
 }
 
+/* ------------------------------------------- altas abandonadas */
+
+const MINUTOS_PARA_PAGAR_POR_DEFECTO = 60;
+
+export const minutosParaPagar = () => {
+  const valor = Number(process.env.MINUTOS_PARA_PAGAR);
+  return Number.isFinite(valor) && valor > 0 ? valor : MINUTOS_PARA_PAGAR_POR_DEFECTO;
+};
+
+/**
+ * Borra las altas que apartaron una direccion y nunca la pagaron.
+ *
+ * Sin esto, cualquiera puede llenar el formulario una y otra vez y quedarse
+ * con "dentista", "abogado" o "clinica" sin pagar un centavo. Las direcciones
+ * no se pueden cambiar despues —se imprimen en tarjetas NFC y codigos QR— asi
+ * que un nombre apartado gratis queda envenenado para siempre.
+ *
+ * Se llama al comprobar disponibilidad y al dar de alta, no desde una tarea
+ * programada: asi la limpieza ocurre justo cuando importa, que es cuando otro
+ * cliente quiere ese nombre.
+ *
+ * Solo toca perfiles que nunca llegaron a pagar: pendiente_pago y sin publicar.
+ * Una tarjeta que pago alguna vez no se borra jamas por este camino.
+ */
+export function liberarAbandonadas() {
+  const limite = new Date(Date.now() - minutosParaPagar() * 60 * 1000).toISOString();
+
+  const abandonadas = obtenerDB()
+    .prepare(
+      `SELECT s.slug FROM suscripciones s
+         JOIN profiles p ON p.slug = s.slug
+        WHERE s.estado = 'pendiente_pago'
+          AND s.periodo_fin IS NULL
+          AND p.published = 0
+          AND s.creada_en <= ?`
+    )
+    .all(limite);
+
+  if (!abandonadas.length) return 0;
+
+  const db = obtenerDB();
+  const borrar = db.transaction((filas) => {
+    for (const { slug } of filas) {
+      db.prepare('DELETE FROM profiles WHERE slug = ?').run(slug);
+      db.prepare('DELETE FROM suscripciones WHERE slug = ?').run(slug);
+    }
+  });
+  borrar(abandonadas);
+
+  console.log(
+    `[suscripciones] liberadas ${abandonadas.length} direccion(es) sin pagar: ` +
+      abandonadas.map((f) => f.slug).join(', ')
+  );
+  return abandonadas.length;
+}
+
 /** Para el panel: la suscripcion con su estado ya resuelto. */
 export function aPublico(fila) {
   if (!fila) return null;
