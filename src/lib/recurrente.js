@@ -88,6 +88,21 @@ export async function crearCheckout({ slug, exitoUrl, cancelUrl }) {
   return { id: respuesta.id, url: respuesta.checkout_url };
 }
 
+/**
+ * Cancela una suscripcion para que deje de cobrarle al cliente.
+ *
+ * Se llama al borrar un perfil. Sin esto, la pasarela seguiria cobrando cada
+ * mes por una tarjeta que ya no existe: el cliente pagaria por nada y la
+ * primera noticia seria un reclamo, o un contracargo.
+ *
+ * Devuelve true si se cancelo, false si no habia nada que cancelar.
+ */
+export async function cancelarSuscripcion(suscripcionId) {
+  if (!suscripcionId) return false;
+  await pedir(`/subscriptions/${encodeURIComponent(suscripcionId)}`, { method: 'DELETE' });
+  return true;
+}
+
 /* --------------------------------------------------------- webhooks */
 
 /**

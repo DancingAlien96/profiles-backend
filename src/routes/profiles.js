@@ -5,7 +5,7 @@ import * as Perfil from '../models/Profile.js';
 import * as Invitacion from '../models/Invitation.js';
 import { requireAuth, requireOwner, requireAdmin } from '../middleware/auth.js';
 import * as Suscripcion from '../models/Suscripcion.js';
-import { crearCheckout } from '../lib/recurrente.js';
+import { crearCheckout, cancelarSuscripcion } from '../lib/recurrente.js';
 import { obtenerDB } from '../db.js';
 
 const router = Router();
@@ -325,6 +325,52 @@ router.post('/:slug/reiniciar-cambios', requireAdmin, (req, res) => {
     return res.status(404).json({ error: 'Perfil no encontrado' });
   }
   res.json({ ok: true, restantes: Perfil.limiteDiario() });
+});
+
+/**
+ * Borra un perfil y libera su direccion.
+ *
+ * El orden importa y no es negociable: primero se corta el cobro en la
+ * pasarela y solo despues se borra. Al reves, un fallo de red dejaria al
+ * cliente pagando cada mes por una tarjeta que ya no existe, y sin fila en la
+ * base no quedaria ni rastro del id que hace falta para cancelarla.
+ *
+ * Por eso, si la cancelacion falla, NO se borra nada y se dice por que.
+ *
+ * Ojo con la direccion: al liberarse, otro cliente puede tomarla. Si la
+ * persona repartio codigos QR o tarjetas NFC impresas, esos apuntarian al
+ * perfil de un desconocido. Para quitar una tarjeta de circulacion sin ese
+ * riesgo esta PATCH /:slug/published, que la oculta y conserva la direccion.
+ */
+router.delete('/:slug', requireAdmin, async (req, res) => {
+  const slug = String(req.params.slug || '').toLowerCase();
+
+  const perfil = Perfil.porSlug(slug);
+  if (!perfil) return res.status(404).json({ error: 'Perfil no encontrado' });
+
+  const suscripcion = Suscripcion.porSlug(slug);
+
+  if (suscripcion?.suscripcion_id) {
+    try {
+      await cancelarSuscripcion(suscripcion.suscripcion_id);
+      console.log(`[perfiles] ${slug}: suscripcion cancelada en la pasarela`);
+    } catch (err) {
+      console.error(`[perfiles] no se pudo cancelar el cobro de ${slug}:`, err.message);
+      return res.status(502).json({
+        error:
+          'No se pudo cancelar el cobro en la pasarela, asi que no se borro nada. ' +
+          'Si se borrara igual, el cliente seguiria pagando cada mes por una ' +
+          'tarjeta que ya no existe. Intenta de nuevo en un momento.',
+      });
+    }
+  }
+
+  // ON DELETE CASCADE se lleva la suscripcion; los eventos del webhook se
+  // conservan a proposito, que son el registro de lo que se cobro.
+  obtenerDB().prepare('DELETE FROM profiles WHERE slug = ?').run(slug);
+  console.log(`[perfiles] ${slug}: perfil borrado, direccion liberada`);
+
+  res.json({ ok: true, slug, cobroCancelado: Boolean(suscripcion?.suscripcion_id) });
 });
 
 router.patch('/:slug/published', requireAdmin, (req, res) => {

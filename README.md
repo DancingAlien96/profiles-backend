@@ -44,7 +44,7 @@ al mismo perfil no llega hasta aquí.
 | `PUT` | `/api/profiles/:slug` | dueño (token) |
 | `PUT` | `/api/profiles/:slug/photo` | dueño (token) |
 | `GET` | `/api/profiles/disponible/:slug` | público — comprueba si la dirección está libre |
-| `POST` | `/api/profiles/registro` | público, con token de invitación |
+| `POST` | `/api/profiles/registro` | público — con invitación o sin ella |
 | `GET` | `/api/invitations/:token` | público — estado de una invitación |
 | `GET` | `/api/profiles/todos` | admin (`x-admin-key`) |
 | `POST` | `/api/invitations` | admin (`x-admin-key`) |
@@ -54,6 +54,8 @@ al mismo perfil no llega hasta aquí.
 | `GET` | `/api/profiles/:slug/cupo` | dueño (token) — cambios que le quedan hoy |
 | `POST` | `/api/profiles/:slug/reset-password` | admin (`x-admin-key`) |
 | `POST` | `/api/profiles/:slug/reiniciar-cambios` | admin (`x-admin-key`) |
+| `DELETE` | `/api/profiles/:slug` | admin — borra y libera la dirección |
+| `POST` | `/api/webhooks/recurrente` | la pasarela — firmado con Svix |
 | `PATCH` | `/api/profiles/:slug/published` | admin (`x-admin-key`) |
 
 ## Puesta en marcha

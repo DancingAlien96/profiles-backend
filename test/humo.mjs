@@ -55,11 +55,25 @@ conectarDB(':memory:');
 const { createServer } = await import('node:http');
 export const checkoutsPedidos = [];
 
+export const cancelaciones = [];
+export let fallarCancelacion = false;
+
 const pasarela = await new Promise((resolve) => {
   const s = createServer((req, res) => {
     let cuerpo = '';
     req.on('data', (c) => (cuerpo += c));
     req.on('end', () => {
+      // Cancelar una suscripcion: DELETE /subscriptions/<id>
+      if (req.method === 'DELETE') {
+        if (fallarCancelacion) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ message: 'la pasarela no responde' }));
+        }
+        cancelaciones.push(req.url);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ message: 'Suscripcion cancelada' }));
+      }
+
       checkoutsPedidos.push({ ruta: req.url, cuerpo: JSON.parse(cuerpo || '{}') });
       res.writeHead(201, { 'Content-Type': 'application/json' });
       const id = `ch_prueba_${checkoutsPedidos.length}`;
@@ -1421,6 +1435,76 @@ await prueba('cada cobro sale etiquetado con su tarjeta', () => {
     assert.ok(cuerpo.metadata.slug, 'el cobro deberia llevar el slug');
     assert.equal(cuerpo.items[0].price_id, 'price_de_prueba');
   }
+});
+
+/* -------------------------------------------------- borrado desde el panel */
+
+await prueba('borrar un perfil exige la clave de administrador', async () => {
+  const { estado } = await pedir('/api/profiles/avisos-dos', { method: 'DELETE' });
+  assert.equal(estado, 401);
+});
+
+await prueba('borrar libera la direccion para otro cliente', async () => {
+  const { estado } = await pedir('/api/profiles/avisos-dos', {
+    method: 'DELETE',
+    headers: { 'x-admin-key': ADMIN_KEY },
+  });
+  assert.equal(estado, 200);
+  assert.ok(!Perfil_porSlug('avisos-dos'), 'el perfil deberia haberse borrado');
+
+  const { cuerpo } = await pedir('/api/profiles/disponible/avisos-dos');
+  assert.equal(cuerpo.disponible, true, 'la direccion deberia quedar libre');
+});
+
+await prueba('al borrar se corta el cobro en la pasarela', async () => {
+  // Sin esto el cliente seguiria pagando cada mes por una tarjeta borrada.
+  cancelaciones.length = 0;
+  await pedir('/api/profiles', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ slug: 'con-cobro', name: 'Con Cobro', password: 'clave12345' }),
+  });
+  Suscripcion.crearPendiente('con-cobro');
+  Suscripcion.activar('con-cobro', { suscripcionId: 'sub_de_con_cobro' });
+
+  const { estado, cuerpo } = await pedir('/api/profiles/con-cobro', {
+    method: 'DELETE',
+    headers: { 'x-admin-key': ADMIN_KEY },
+  });
+  assert.equal(estado, 200);
+  assert.equal(cuerpo.cobroCancelado, true);
+  assert.deepEqual(cancelaciones, ['/subscriptions/sub_de_con_cobro']);
+});
+
+await prueba('si no se puede cortar el cobro, NO se borra nada', async () => {
+  await pedir('/api/profiles', {
+    method: 'POST',
+    headers: { 'x-admin-key': ADMIN_KEY },
+    body: JSON.stringify({ slug: 'cobro-vivo', name: 'Cobro Vivo', password: 'clave12345' }),
+  });
+  Suscripcion.crearPendiente('cobro-vivo');
+  Suscripcion.activar('cobro-vivo', { suscripcionId: 'sub_de_cobro_vivo' });
+
+  fallarCancelacion = true;
+  const { estado } = await pedir('/api/profiles/cobro-vivo', {
+    method: 'DELETE',
+    headers: { 'x-admin-key': ADMIN_KEY },
+  });
+  fallarCancelacion = false;
+
+  assert.equal(estado, 502);
+  // Lo importante: el perfil sigue ahi, con su id de suscripcion, para poder
+  // reintentar. Borrarlo dejaria al cliente pagando sin forma de pararlo.
+  assert.ok(Perfil_porSlug('cobro-vivo'), 'no deberia borrarse');
+  assert.equal(Suscripcion.porSlug('cobro-vivo').suscripcion_id, 'sub_de_cobro_vivo');
+});
+
+await prueba('borrar un perfil que no existe da 404', async () => {
+  const { estado } = await pedir('/api/profiles/no-existe-nadie', {
+    method: 'DELETE',
+    headers: { 'x-admin-key': ADMIN_KEY },
+  });
+  assert.equal(estado, 404);
 });
 
 /* ----------------------------------------------------------- cierre */
